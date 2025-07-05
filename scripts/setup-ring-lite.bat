@@ -1,17 +1,46 @@
 @echo off
+setlocal enabledelayedexpansion
+
 echo Setting up Ring-lite Model for Companion Cube...
+echo.
+
+REM Get the directory where this script is located
+set "SCRIPT_DIR=%~dp0"
+set "PROJECT_ROOT=%SCRIPT_DIR%\.."
+
+REM Navigate to project root
+cd /d "%PROJECT_ROOT%"
+echo Project root: %CD%
 
 echo.
 echo This script will download and configure the Ring-lite model for ADHD productivity assistance.
 echo.
 
-cd src\CompanionCube.LlmBridge\Python
+cd "%PROJECT_ROOT%\src\CompanionCube.LlmBridge\Python"
 
 echo Step 1: Installing Python dependencies...
-pip install -r requirements.txt
+
+REM Check for pip command
+pip --version >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    set "PIP_CMD=pip"
+) else (
+    pip3 --version >nul 2>&1
+    if %ERRORLEVEL% EQU 0 (
+        set "PIP_CMD=pip3"
+    ) else (
+        echo ❌ pip not found. Please install pip first.
+        cd /d "%PROJECT_ROOT%"
+        pause
+        exit /b 1
+    )
+)
+
+!PIP_CMD! install -r requirements.txt
 if %ERRORLEVEL% NEQ 0 (
     echo ❌ Failed to install Python dependencies
     echo Please ensure Python is installed and added to PATH
+    cd /d "%PROJECT_ROOT%"
     pause
     exit /b 1
 )
@@ -68,7 +97,23 @@ echo.
 echo Step 4: Testing Ring-lite model...
 echo Starting test server (this may take a moment to load the model)...
 
-start "Ring-lite Test" cmd /k "python llm_server.py --model .\models\ring-lite.gguf --port 5678"
+REM Check for Python command
+python --version >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    set "PYTHON_CMD=python"
+) else (
+    python3 --version >nul 2>&1
+    if %ERRORLEVEL% EQU 0 (
+        set "PYTHON_CMD=python3"
+    ) else (
+        echo ❌ Python not found. Please install Python 3.8+ first.
+        cd /d "%PROJECT_ROOT%"
+        pause
+        exit /b 1
+    )
+)
+
+start "Ring-lite Test" cmd /k "!PYTHON_CMD! llm_server.py --model .\models\ring-lite.gguf --port 5678"
 
 echo Waiting for server to start...
 timeout /t 10 /nobreak >nul
@@ -78,12 +123,12 @@ curl -X POST http://localhost:5678/generate -H "Content-Type: application/json" 
 
 echo.
 echo Step 5: Updating configuration...
-cd ..\..\..
+cd /d "%PROJECT_ROOT%"
 
 powershell -Command "
-$config = Get-Content 'src\CompanionCube.Service\appsettings.json' | ConvertFrom-Json
+$config = Get-Content '%PROJECT_ROOT%\src\CompanionCube.Service\appsettings.json' | ConvertFrom-Json
 $config.LlmModelPath = 'src\CompanionCube.LlmBridge\Python\models\ring-lite.gguf'
-$config | ConvertTo-Json -Depth 10 | Set-Content 'src\CompanionCube.Service\appsettings.json'
+$config | ConvertTo-Json -Depth 10 | Set-Content '%PROJECT_ROOT%\src\CompanionCube.Service\appsettings.json'
 "
 
 echo.

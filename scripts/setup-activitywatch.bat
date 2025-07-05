@@ -1,5 +1,16 @@
 @echo off
+setlocal enabledelayedexpansion
+
 echo Setting up ActivityWatch Integration for Companion Cube...
+echo.
+
+REM Get the directory where this script is located
+set "SCRIPT_DIR=%~dp0"
+set "PROJECT_ROOT=%SCRIPT_DIR%\.."
+
+REM Navigate to project root
+cd /d "%PROJECT_ROOT%"
+echo Project root: %CD%
 
 echo.
 echo This script will help you set up ActivityWatch for use with Companion Cube.
@@ -46,12 +57,12 @@ echo.
 echo Step 3: Updating Companion Cube configuration...
 
 echo Enabling ActivityWatch integration in appsettings.json...
-powershell -Command "(Get-Content src\CompanionCube.Service\appsettings.json) -replace '\"UseActivityWatch\": false', '\"UseActivityWatch\": true' | Set-Content src\CompanionCube.Service\appsettings.json"
+powershell -Command "(Get-Content '%PROJECT_ROOT%\src\CompanionCube.Service\appsettings.json') -replace '\"UseActivityWatch\": false', '\"UseActivityWatch\": true' | Set-Content '%PROJECT_ROOT%\src\CompanionCube.Service\appsettings.json'"
 
 echo.
 echo Step 4: Testing the integration...
 echo Starting Companion Cube configuration app to test connection...
-start "" cmd /k "cd src\CompanionCube.ConfigApp && dotnet run && pause"
+start "" cmd /k "cd /d '%PROJECT_ROOT%\src\CompanionCube.ConfigApp' && dotnet run && pause"
 
 echo.
 echo ✅ ActivityWatch integration setup complete!

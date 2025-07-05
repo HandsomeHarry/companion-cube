@@ -1,7 +1,19 @@
 @echo off
+setlocal enabledelayedexpansion
+
 echo ================================================================
 echo    COMPANION CUBE - Complete Windows Setup for Testing
 echo ================================================================
+echo.
+
+REM Get the directory where this script is located
+set "SCRIPT_DIR=%~dp0"
+set "PROJECT_ROOT=%SCRIPT_DIR%\.."
+
+REM Navigate to project root
+cd /d "%PROJECT_ROOT%"
+echo Project root: %CD%
+
 echo.
 echo This script will set up everything needed to test Companion Cube
 echo on Windows with ActivityWatch and Ring-lite model.
@@ -26,14 +38,21 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo Checking Python...
 python --version >nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
-    echo ❌ Python not found or not in PATH
-    echo Please install Python 3.8+ from: https://python.org
-    echo Make sure to check "Add Python to PATH" during installation
-    pause
-    exit /b 1
-) else (
+if %ERRORLEVEL% EQU 0 (
+    set "PYTHON_CMD=python"
     echo ✅ Python found
+) else (
+    python3 --version >nul 2>&1
+    if %ERRORLEVEL% EQU 0 (
+        set "PYTHON_CMD=python3"
+        echo ✅ Python3 found
+    ) else (
+        echo ❌ Python not found or not in PATH
+        echo Please install Python 3.8+ from: https://python.org
+        echo Make sure to check "Add Python to PATH" during installation
+        pause
+        exit /b 1
+    )
 )
 
 echo.
@@ -107,9 +126,9 @@ echo STEP 5: Testing Configuration
 echo ================================================================
 
 echo Testing ActivityWatch connection...
-cd src\CompanionCube.ConfigApp
+cd "%PROJECT_ROOT%\src\CompanionCube.ConfigApp"
 start "Config Test" cmd /k "dotnet run && pause"
-cd ..\..
+cd /d "%PROJECT_ROOT%"
 
 echo.
 echo Please use the configuration app that just opened to:
@@ -130,7 +149,7 @@ echo Starting complete system test...
 echo.
 
 echo 1. Starting LLM Server...
-start "LLM Server" cmd /k "cd src\CompanionCube.LlmBridge\Python && python llm_server.py --model .\models\ring-lite.gguf --port 5678"
+start "LLM Server" cmd /k "cd /d '%PROJECT_ROOT%\src\CompanionCube.LlmBridge\Python' && !PYTHON_CMD! llm_server.py --model .\models\ring-lite.gguf --port 5678"
 
 echo 2. Waiting for LLM server to start...
 timeout /t 10 /nobreak >nul
@@ -140,7 +159,7 @@ curl -X POST http://localhost:5678/generate -H "Content-Type: application/json" 
 
 echo.
 echo 4. Starting Companion Cube Service...
-start "Companion Cube" cmd /k "cd src\CompanionCube.Service && dotnet run --configuration Release"
+start "Companion Cube" cmd /k "cd /d '%PROJECT_ROOT%\src\CompanionCube.Service' && dotnet run --configuration Release"
 
 echo.
 echo ================================================================
