@@ -4,6 +4,8 @@ using CompanionCube.Service.Services;
 using CompanionCube.LlmBridge.Services;
 using CompanionCube.Device.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) => {
