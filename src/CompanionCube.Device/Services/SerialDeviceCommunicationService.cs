@@ -55,7 +55,7 @@ public class SerialDeviceCommunicationService : IDeviceCommunicationService, IDi
         }
     }
 
-    public async Task DisconnectAsync()
+    public Task DisconnectAsync()
     {
         try
         {
@@ -72,6 +72,8 @@ public class SerialDeviceCommunicationService : IDeviceCommunicationService, IDi
         {
             DeviceError?.Invoke(this, $"Disconnect error: {ex.Message}");
         }
+        
+        return Task.CompletedTask;
     }
 
     public async Task SendStateAsync(DeviceState state)
@@ -85,7 +87,7 @@ public class SerialDeviceCommunicationService : IDeviceCommunicationService, IDi
         await SendMessageAsync(message);
     }
 
-    public async Task SendMessageAsync(DeviceMessage message)
+    public Task SendMessageAsync(DeviceMessage message)
     {
         try
         {
@@ -110,13 +112,15 @@ public class SerialDeviceCommunicationService : IDeviceCommunicationService, IDi
             _isConnected = false;
             DeviceDisconnected?.Invoke(this, "Communication lost");
         }
+        
+        return Task.CompletedTask;
     }
 
-    public async Task<bool> IsConnectedAsync()
+    public Task<bool> IsConnectedAsync()
     {
         lock (_lock)
         {
-            return _isConnected && _serialPort != null && _serialPort.IsOpen;
+            return Task.FromResult(_isConnected && _serialPort != null && _serialPort.IsOpen);
         }
     }
 

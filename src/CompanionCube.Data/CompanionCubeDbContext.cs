@@ -9,8 +9,8 @@ public class CompanionCubeDbContext : DbContext
     {
     }
 
-    public DbSet<ActivityRecord> ActivityRecords { get; set; }
-    public DbSet<GoodDayTemplate> GoodDayTemplates { get; set; }
+    public DbSet<ActivityRecord> ActivityRecords { get; set; } = null!;
+    public DbSet<GoodDayTemplate> GoodDayTemplates { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
