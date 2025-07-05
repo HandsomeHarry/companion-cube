@@ -47,10 +47,8 @@ if (enableDevice)
 
 // Main service
 services.AddHostedService<CompanionCubeService>();
-
-// Windows service support
-services.AddWindowsService();
 })
+.UseWindowsService()
 .Build();
 
 // Ensure database is created
