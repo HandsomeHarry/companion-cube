@@ -7,15 +7,15 @@ cd src\CompanionCube.LlmBridge\Python
 pip install -r requirements.txt
 
 echo.
-echo Downloading lightweight model (phi-2-adhd)...
-python download_model.py --model phi-2-adhd --output .\models
+echo Downloading mistral-7b model...
+python download_model.py --model mistral-7b --output .\models
 
 if %ERRORLEVEL% EQU 0 (
     echo.
     echo ✅ LLM setup completed successfully!
     echo.
     echo The AI model is ready for use.
-    echo Model location: src\CompanionCube.LlmBridge\Python\models\phi-2-adhd.gguf
+    echo Model location: src\CompanionCube.LlmBridge\Python\models\mistral-7b.gguf
     echo.
     echo To test the LLM server:
     echo   scripts\test-llm.bat

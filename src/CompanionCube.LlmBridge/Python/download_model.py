@@ -16,7 +16,7 @@ RECOMMENDED_MODELS = {
         "size": "1.6GB",
         "description": "Lightweight model suitable for task inference"
     },
-    "mistral-7b-adhd": {
+    "mistral-7b": {
         "url": "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf",
         "size": "4.1GB",
         "description": "Balanced model for behavior analysis"
@@ -86,7 +86,7 @@ def create_model_config(model_name: str, output_dir: str):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Download ADHD-optimized LLM for Companion Cube')
-    parser.add_argument('--model', default='phi-2-adhd', 
+    parser.add_argument('--model', default='mistral-7b', 
                        choices=list(RECOMMENDED_MODELS.keys()),
                        help='Model to download')
     parser.add_argument('--output', default='./models', 

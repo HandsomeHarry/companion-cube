@@ -90,12 +90,12 @@ pip install -r requirements.txt
 
 2. Download an ADHD-optimized model:
 ```bash
-python download_model.py --model phi-2-adhd --output ./models
+python download_model.py --model mistral-7b --output ./models
 ```
 
 Available models:
 - `phi-2-adhd` (1.6GB) - Lightweight, fast inference
-- `mistral-7b-adhd` (4.1GB) - Balanced performance
+- `mistral-7b` (4.1GB) - Balanced performance (recommended)
 - `llama2-7b-adhd` (3.8GB) - Most comprehensive
 
 #### Activity Monitoring Options
@@ -121,7 +121,7 @@ Available models:
 2. Start the LLM server:
 ```bash
 cd src/CompanionCube.LlmBridge/Python
-python llm_server.py --model ./models/phi-2-adhd.gguf --port 5678
+python llm_server.py --model ./models/mistral-7b.gguf --port 5678
 ```
 
 3. Build and run the Windows service:
