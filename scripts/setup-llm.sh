@@ -4,21 +4,42 @@ set -e
 echo "Setting up LLM for Companion Cube..."
 echo
 
-# Navigate to project root if not already there
-if [[ ! -f "CompanionCube.sln" ]]; then
-    echo "Navigating to companion-cube directory..."
-    cd "$(dirname "$0")/.."
-fi
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Navigate to project root
+cd "$PROJECT_ROOT"
+
+echo "Project root: $(pwd)"
 
 echo "Installing Python dependencies..."
 cd src/CompanionCube.LlmBridge/Python
 
-if ! command -v pip &> /dev/null; then
-    echo "❌ pip not found. Please install Python and pip first."
+# Check for Python and pip
+PYTHON_CMD=""
+PIP_CMD=""
+
+if command -v python3 &> /dev/null; then
+    PYTHON_CMD="python3"
+elif command -v python &> /dev/null; then
+    PYTHON_CMD="python"
+else
+    echo "❌ Python not found. Please install Python 3.8+ first."
     exit 1
 fi
 
-pip install -r requirements.txt
+if command -v pip3 &> /dev/null; then
+    PIP_CMD="pip3"
+elif command -v pip &> /dev/null; then
+    PIP_CMD="pip"
+else
+    echo "❌ pip not found. Please install pip first."
+    exit 1
+fi
+
+echo "Using $PYTHON_CMD and $PIP_CMD"
+$PIP_CMD install -r requirements.txt
 
 echo
 echo "Creating models directory..."
@@ -26,7 +47,7 @@ mkdir -p models
 
 echo
 echo "Downloading mistral-7b model..."
-python download_model.py --model mistral-7b --output ./models
+$PYTHON_CMD download_model.py --model mistral-7b --output ./models
 
 if [ $? -eq 0 ]; then
     echo
@@ -44,4 +65,4 @@ else
     exit 1
 fi
 
-cd ../../..
+cd "$PROJECT_ROOT"

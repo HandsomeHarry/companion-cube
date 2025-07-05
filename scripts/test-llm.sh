@@ -4,17 +4,24 @@ set -e
 echo "Testing LLM Server..."
 echo
 
-# Navigate to project root if not already there
-if [[ ! -f "CompanionCube.sln" ]]; then
-    echo "Navigating to companion-cube directory..."
-    cd "$(dirname "$0")/.."
-fi
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Navigate to project root
+cd "$PROJECT_ROOT"
+
+echo "Project root: $(pwd)"
 
 echo "Starting LLM server (this may take a few moments)..."
-cd src/CompanionCube.LlmBridge/Python
+cd "$PROJECT_ROOT/src/CompanionCube.LlmBridge/Python"
 
 # Start server in background
-python llm_server.py --model ./models/mistral-7b.gguf --port 5678 &
+if command -v python3 &> /dev/null; then
+    python3 llm_server.py --model ./models/mistral-7b.gguf --port 5678 &
+else
+    python llm_server.py --model ./models/mistral-7b.gguf --port 5678 &
+fi
 LLM_PID=$!
 
 echo

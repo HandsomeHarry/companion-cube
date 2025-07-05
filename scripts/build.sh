@@ -4,11 +4,14 @@ set -e
 echo "Building Companion Cube Solution..."
 echo
 
-# Navigate to project root if not already there
-if [[ ! -f "CompanionCube.sln" ]]; then
-    echo "Navigating to companion-cube directory..."
-    cd "$(dirname "$0")/.."
-fi
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Navigate to project root
+cd "$PROJECT_ROOT"
+
+echo "Project root: $(pwd)"
 
 echo "Restoring NuGet packages..."
 dotnet restore
