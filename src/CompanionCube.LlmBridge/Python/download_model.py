@@ -11,20 +11,10 @@ from pathlib import Path
 
 # Recommended models for local deployment
 RECOMMENDED_MODELS = {
-    "phi-2-adhd": {
-        "url": "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf",
-        "size": "1.6GB",
-        "description": "Lightweight model suitable for task inference"
-    },
     "mistral-7b": {
         "url": "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf",
         "size": "4.1GB",
         "description": "Balanced model for behavior analysis"
-    },
-    "llama2-7b-adhd": {
-        "url": "https://huggingface.co/TheBloke/Llama-2-7B-Chat-GGUF/resolve/main/llama-2-7b-chat.Q4_K_M.gguf",
-        "size": "3.8GB",
-        "description": "Comprehensive model for all features"
     }
 }
 
