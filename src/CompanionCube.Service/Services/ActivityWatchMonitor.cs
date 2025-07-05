@@ -7,7 +7,7 @@ public class ActivityWatchMonitor : IActivityMonitor
 {
     private readonly IActivityWatchClient _activityWatchClient;
     private readonly ILogger<ActivityWatchMonitor> _logger;
-    private Timer? _pollingTimer;
+    private System.Threading.Timer? _pollingTimer;
     private DateTime _lastPollTime = DateTime.Now.AddMinutes(-5);
     private List<ActivityRecord> _lastKnownActivities = new();
     private UserState _currentState = UserState.Away;
@@ -35,7 +35,7 @@ public class ActivityWatchMonitor : IActivityMonitor
         _logger.LogInformation("Connected to ActivityWatch server successfully");
         
         // Start polling for new activities
-        _pollingTimer = new Timer(PollForNewActivities, null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
+        _pollingTimer = new System.Threading.Timer(PollForNewActivities, null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
     }
 
     public async Task StopMonitoringAsync()

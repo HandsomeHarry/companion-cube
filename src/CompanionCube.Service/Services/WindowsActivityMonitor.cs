@@ -8,7 +8,7 @@ namespace CompanionCube.Service.Services;
 public class WindowsActivityMonitor : IActivityMonitor
 {
     private readonly ILogger<WindowsActivityMonitor> _logger;
-    private Timer? _monitoringTimer;
+    private System.Threading.Timer? _monitoringTimer;
     private string _lastActiveWindow = string.Empty;
     private string _lastActiveProcess = string.Empty;
     private DateTime _lastActivityTime = DateTime.Now;
@@ -35,7 +35,7 @@ public class WindowsActivityMonitor : IActivityMonitor
     {
         _logger.LogInformation("Starting activity monitoring...");
         
-        _monitoringTimer = new Timer(MonitorActivity, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+        _monitoringTimer = new System.Threading.Timer(MonitorActivity, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
         
         return Task.CompletedTask;
     }
