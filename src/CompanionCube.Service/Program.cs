@@ -5,50 +5,51 @@ using CompanionCube.LlmBridge.Services;
 using CompanionCube.Device.Services;
 using Microsoft.EntityFrameworkCore;
 
-var builder = Host.CreateApplicationBuilder(args);
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices((context, services) => {
 
 // Database
-builder.Services.AddDbContext<CompanionCubeDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+services.AddDbContext<CompanionCubeDbContext>(options =>
+    options.UseSqlite(context.Configuration.GetConnectionString("DefaultConnection")));
 
 // HTTP Client for ActivityWatch
-builder.Services.AddHttpClient<ActivityWatchClient>();
+services.AddHttpClient<ActivityWatchClient>();
 
 // Activity monitoring - choose between ActivityWatch and Windows API
-var useActivityWatch = builder.Configuration.GetValue<bool>("ActivityWatch:UseActivityWatch", true);
+var useActivityWatch = context.Configuration.GetValue<bool>("ActivityWatch:UseActivityWatch", true);
 if (useActivityWatch)
 {
-    builder.Services.AddScoped<IActivityWatchClient, ActivityWatchClient>();
-    builder.Services.AddScoped<IActivityMonitor, ActivityWatchMonitor>();
+    services.AddScoped<IActivityWatchClient, ActivityWatchClient>();
+    services.AddScoped<IActivityMonitor, ActivityWatchMonitor>();
 }
 else
 {
-    builder.Services.AddScoped<IActivityMonitor, WindowsActivityMonitor>();
+    services.AddScoped<IActivityMonitor, WindowsActivityMonitor>();
 }
 
 // Core services
-builder.Services.AddScoped<IPatternDetectionService, PatternDetectionService>();
+services.AddScoped<IPatternDetectionService, PatternDetectionService>();
 
 // LLM service
-var modelPath = builder.Configuration.GetValue<string>("LlmModelPath") ?? 
+var modelPath = context.Configuration.GetValue<string>("LlmModelPath") ?? 
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "models", "phi-2-adhd.gguf");
-builder.Services.AddScoped<ILlmService>(provider => 
+services.AddScoped<ILlmService>(provider => 
     new LocalLlmService(provider.GetRequiredService<ILogger<LocalLlmService>>(), modelPath));
 
 // Device service (optional)
-var enableDevice = builder.Configuration.GetValue<bool>("EnableDevice");
+var enableDevice = context.Configuration.GetValue<bool>("EnableDevice");
 if (enableDevice)
 {
-    builder.Services.AddScoped<IDeviceCommunicationService, SerialDeviceCommunicationService>();
+    services.AddScoped<IDeviceCommunicationService, SerialDeviceCommunicationService>();
 }
 
 // Main service
-builder.Services.AddHostedService<CompanionCubeService>();
+services.AddHostedService<CompanionCubeService>();
 
 // Windows service support
-builder.Services.AddWindowsService();
-
-var host = builder.Build();
+services.AddWindowsService();
+})
+.Build();
 
 // Ensure database is created
 using (var scope = host.Services.CreateScope())
