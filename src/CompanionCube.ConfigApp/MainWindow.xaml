@@ -1,0 +1,181 @@
+<Window x:Class="CompanionCube.ConfigApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Companion Cube Configuration" Height="600" Width="800"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource SecondaryBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{StaticResource PrimaryBrush}" Padding="20">
+            <TextBlock Text="Companion Cube Configuration" 
+                       FontSize="24" 
+                       FontWeight="Bold" 
+                       Foreground="White" 
+                       HorizontalAlignment="Center"/>
+        </Border>
+        
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" Margin="20">
+            <StackPanel>
+                <!-- Companion Mode Selection -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Companion Mode" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+                        <TextBlock Text="Choose how your Companion Cube interacts with you:" Margin="0,0,0,10"/>
+                        
+                        <RadioButton x:Name="StudyBuddyMode" Content="Study Buddy" Margin="0,5" IsChecked="True">
+                            <RadioButton.ToolTip>
+                                <ToolTip Content="Active encouragement with check-ins every 15-30 minutes"/>
+                            </RadioButton.ToolTip>
+                        </RadioButton>
+                        
+                        <RadioButton x:Name="GhostMode" Content="Ghost Mode" Margin="0,5">
+                            <RadioButton.ToolTip>
+                                <ToolTip Content="Silent logging with minimal interaction"/>
+                            </RadioButton.ToolTip>
+                        </RadioButton>
+                        
+                        <RadioButton x:Name="CoachMode" Content="Coach Mode" Margin="0,5">
+                            <RadioButton.ToolTip>
+                                <ToolTip Content="Proactive suggestions based on your good day patterns"/>
+                            </RadioButton.ToolTip>
+                        </RadioButton>
+                        
+                        <RadioButton x:Name="WeekendMode" Content="Weekend Mode" Margin="0,5">
+                            <RadioButton.ToolTip>
+                                <ToolTip Content="Relaxed monitoring with different success metrics"/>
+                            </RadioButton.ToolTip>
+                        </RadioButton>
+                    </StackPanel>
+                </Border>
+                
+                <!-- LLM Settings -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="AI Assistant" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+                        
+                        <CheckBox x:Name="EnableLlm" Content="Enable AI Task Inference" IsChecked="True" Margin="0,5"/>
+                        <CheckBox x:Name="EnableBehaviorAnalysis" Content="Enable Behavior Analysis" IsChecked="True" Margin="0,5"/>
+                        
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <TextBlock Text="Model:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ComboBox x:Name="ModelSelector" Width="200" VerticalAlignment="Center">
+                                <ComboBoxItem Content="phi-2-adhd (1.6GB)" IsSelected="True"/>
+                                <ComboBoxItem Content="mistral-7b-adhd (4.1GB)"/>
+                                <ComboBoxItem Content="llama2-7b-adhd (3.8GB)"/>
+                            </ComboBox>
+                        </StackPanel>
+                        
+                        <Button x:Name="TestLlmButton" Content="Test AI Connection" Margin="0,10,0,0" Width="150" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Activity Monitoring Settings -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Activity Monitoring" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+                        
+                        <TextBlock Text="Choose your activity monitoring source:" Margin="0,0,0,10"/>
+                        
+                        <RadioButton x:Name="UseActivityWatch" Content="ActivityWatch (Recommended)" Margin="0,5" IsChecked="True">
+                            <RadioButton.ToolTip>
+                                <ToolTip Content="Uses ActivityWatch for comprehensive activity tracking including web browsing"/>
+                            </RadioButton.ToolTip>
+                        </RadioButton>
+                        
+                        <RadioButton x:Name="UseWindowsAPI" Content="Windows API (Basic)" Margin="0,5">
+                            <RadioButton.ToolTip>
+                                <ToolTip Content="Uses Windows API for basic window and application tracking"/>
+                            </RadioButton.ToolTip>
+                        </RadioButton>
+                        
+                        <!-- ActivityWatch specific settings -->
+                        <StackPanel x:Name="ActivityWatchSettings" Margin="20,10,0,0">
+                            <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                                <TextBlock Text="ActivityWatch Server:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBox x:Name="ActivityWatchUrl" Text="http://localhost:5600" Width="200" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            
+                            <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                                <TextBlock Text="Polling Interval (seconds):" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <TextBox x:Name="PollingInterval" Text="30" Width="50" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            
+                            <Button x:Name="TestActivityWatchButton" Content="Test ActivityWatch Connection" Margin="0,10,0,0" Width="200" HorizontalAlignment="Left"/>
+                        </StackPanel>
+                        
+                        <!-- General settings -->
+                        <CheckBox x:Name="TrackWindowTitles" Content="Track Window Titles" IsChecked="True" Margin="0,10,0,5"/>
+                        <CheckBox x:Name="InferTasks" Content="Automatically Infer Tasks" IsChecked="True" Margin="0,5"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Notification Settings -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Notifications" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+                        
+                        <CheckBox x:Name="EnableNotifications" Content="Enable Notifications" IsChecked="True" Margin="0,5"/>
+                        <CheckBox x:Name="ShowEncouragement" Content="Show Encouragement Messages" IsChecked="True" Margin="0,5"/>
+                        <CheckBox x:Name="ShowNudges" Content="Show Gentle Nudges" IsChecked="True" Margin="0,5"/>
+                        
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <TextBlock Text="Check-in Frequency (minutes):" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <TextBox x:Name="CheckInFrequency" Text="20" Width="50" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Device Settings -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Physical Device" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+                        
+                        <CheckBox x:Name="EnableDevice" Content="Enable Physical Companion Cube" IsChecked="False" Margin="0,5"/>
+                        
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <TextBlock Text="COM Port:" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <ComboBox x:Name="ComPortSelector" Width="100" VerticalAlignment="Center">
+                                <ComboBoxItem Content="COM1"/>
+                                <ComboBoxItem Content="COM2"/>
+                                <ComboBoxItem Content="COM3"/>
+                                <ComboBoxItem Content="COM4"/>
+                            </ComboBox>
+                        </StackPanel>
+                        
+                        <Button x:Name="TestDeviceButton" Content="Test Device Connection" Margin="0,10,0,0" Width="200" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Privacy Settings -->
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Privacy" FontSize="18" FontWeight="Bold" Margin="0,0,0,10"/>
+                        
+                        <CheckBox x:Name="AllowDataCollection" Content="Allow anonymous usage data collection" IsChecked="False" Margin="0,5"/>
+                        <TextBlock Text="All data stays local on your machine. No personal information is ever transmitted." 
+                                   FontStyle="Italic" 
+                                   Foreground="Gray" 
+                                   Margin="0,5,0,0"/>
+                        
+                        <Button x:Name="ViewDataButton" Content="View Collected Data" Margin="0,10,0,0" Width="150" HorizontalAlignment="Left"/>
+                        <Button x:Name="ClearDataButton" Content="Clear All Data" Margin="0,5,0,0" Width="150" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Action Buttons -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20,0,0">
+                    <Button x:Name="SaveButton" Content="Save Settings" Width="120" Height="35" Margin="10,0" 
+                            Background="{StaticResource AccentBrush}" Foreground="White" FontWeight="Bold"/>
+                    <Button x:Name="CancelButton" Content="Cancel" Width="120" Height="35" Margin="10,0"/>
+                    <Button x:Name="ResetButton" Content="Reset to Defaults" Width="120" Height="35" Margin="10,0"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

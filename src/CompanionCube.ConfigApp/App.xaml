@@ -1,0 +1,23 @@
+<Application x:Class="CompanionCube.ConfigApp.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <SolidColorBrush x:Key="PrimaryBrush" Color="#4A90E2"/>
+            <SolidColorBrush x:Key="SecondaryBrush" Color="#F5F5F5"/>
+            <SolidColorBrush x:Key="AccentBrush" Color="#7ED321"/>
+            <SolidColorBrush x:Key="WarningBrush" Color="#F5A623"/>
+            <SolidColorBrush x:Key="DangerBrush" Color="#D0021B"/>
+            
+            <Style x:Key="CardStyle" TargetType="Border">
+                <Setter Property="Background" Value="White"/>
+                <Setter Property="BorderBrush" Value="#E0E0E0"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="8"/>
+                <Setter Property="Padding" Value="16"/>
+                <Setter Property="Margin" Value="8"/>
+            </Style>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
