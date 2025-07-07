@@ -148,14 +148,14 @@ The client handles timezone format preferences and automatically retries. If per
 
 ## Critical Implementation Details
 
-- **3-Bucket Analysis Hierarchy**: AFK → Window → Web (web data only relevant when browser is active)
+- **2-Bucket Analysis**: AFK → Window (web bucket removed due to timing inaccuracies)
 - **LLM Context Management**: 30 recent activities for 5-minute analysis, full 8K context for historical patterns  
-- **Activity Timeline Prioritization**: Current events (5-min) prioritized over historical context in LLM prompts
-- **Browser State Logic**: Web events ignored for current state unless user is actively in a browser app
+- **Activity Timeline Prioritization**: Current window events (5-min) prioritized over historical context
+- **Window-Only Analysis**: Web events completely removed due to timing and accuracy issues
 - **Bucket Selection**: Uses `last_updated` timestamp to find active buckets (not hostname-based)
 - **Time Handling**: Subtracts 2 seconds from "now" to avoid querying future timestamps  
 - **State Detection**: LLM-powered analysis with current vs historical context separation
-- **Prompt Engineering**: Clear hierarchy prevents "always on webpage" analysis errors
+- **Prompt Engineering**: Simplified window-only analysis for accurate state detection
 - **NEW Organized Data Storage**: Minimal files in `data/` directory (log.json, daily_summary.json only)
 - **5-Minute Logging**: LLM state analysis logged every 5 minutes with comprehensive context
 - **30-Minute Summaries**: Automatic practical summaries every :00 and :30 with activity breakdown

@@ -407,34 +407,8 @@ class EventProcessor:
                 timeframe_data['statistics']['context_switches'] = context_switches
                 timeframe_data['statistics']['total_active_minutes'] = round(total_duration, 2)
             
-            # Process web events with minimal filtering
-            web_events = data.get('web', [])
-            if web_events:
-                web_events.sort(key=lambda x: x['timestamp'])
-                
-                processed_web = []
-                for event in web_events:
-                    url = event.get('data', {}).get('url', '').strip()
-                    title = event.get('data', {}).get('title', '').strip()
-                    duration = event.get('duration', 0) / 60
-                    timestamp = event.get('timestamp', '')
-                    
-                    if duration >= 0.08 and url:  # 5 seconds minimum
-                        domain = self._extract_domain(url)
-                        processed_event = {
-                            'url': url,
-                            'domain': domain,
-                            'title': title,
-                            'duration_minutes': round(duration, 2),
-                            'timestamp': timestamp,
-                            'raw_duration_seconds': event.get('duration', 0)
-                        }
-                        processed_web.append(processed_event)
-                        
-                        if domain:
-                            timeframe_data['statistics']['unique_domains'].add(domain)
-                
-                timeframe_data['web_events'] = processed_web
+            # Skip web events processing - removed due to timing inaccuracies
+            timeframe_data['web_events'] = []
             
             # Convert sets to lists for JSON serialization
             timeframe_data['statistics']['unique_apps'] = list(timeframe_data['statistics']['unique_apps'])
@@ -551,18 +525,7 @@ class EventProcessor:
                 'priority': 'current'
             })
         
-        # Add recent web events with priority  
-        for event in five_min_data.get('web_events', []):
-            five_min_events.append({
-                'type': 'web',
-                'name': event['domain'],
-                'title': event.get('title', ''),
-                'url': event.get('url', ''),
-                'duration_minutes': event['duration_minutes'],
-                'timestamp': event['timestamp'],
-                'timeframe_source': '5_minutes',
-                'priority': 'current'
-            })
+        # Skip web events due to timing inaccuracies - focus on window events only
         
         # Sort 5-minute events by recency and limit to 30
         five_min_events.sort(key=lambda x: x['timestamp'], reverse=True)
@@ -593,22 +556,7 @@ class EventProcessor:
                             'priority': 'context'
                         })
             
-            # Add top 3 web events from each timeframe for context
-            if web_events_tf:
-                significant_web = sorted(web_events_tf, key=lambda x: x['duration_minutes'], reverse=True)[:3]
-                for event in significant_web:
-                    # Avoid duplicates from 5-minute timeframe
-                    if not any(e['timestamp'] == event['timestamp'] and e['type'] == 'web' for e in timeline):
-                        timeline.append({
-                            'type': 'web',
-                            'name': event['domain'],
-                            'title': event.get('title', ''),
-                            'url': event.get('url', ''),
-                            'duration_minutes': event['duration_minutes'],
-                            'timestamp': event['timestamp'],
-                            'timeframe_source': timeframe_name,
-                            'priority': 'context'
-                        })
+            # Skip web events from longer timeframes too - window events only
         
         # Sort final timeline by priority (current first) then by timestamp
         timeline.sort(key=lambda x: (x['priority'] != 'current', x['timestamp']), reverse=True)

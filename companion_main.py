@@ -290,23 +290,14 @@ class CompanionCube:
             latest_afk = max(recent_afk_events, key=lambda x: x['timestamp'])
             is_currently_afk = latest_afk.get('data', {}).get('status') == 'afk'
 
-        # Get current window and web context
+        # Get current window context (web analysis removed)
         current_app = None
-        current_website = None
-        current_web_title = None
         
         if timeline:
             # Find most recent app
             for event in reversed(timeline):
                 if event['type'] == 'app' and event['name']:
                     current_app = event['name']
-                    break
-            
-            # Find most recent web activity 
-            for event in reversed(timeline):
-                if event['type'] == 'web' and event['name']:
-                    current_website = event['name']
-                    current_web_title = event.get('title', '')
                     break
 
         prompt = f"""Analyze this user's raw activity data and determine their current productivity state for ADHD support.
@@ -319,12 +310,10 @@ class CompanionCube:
 
 🪟 CURRENT WINDOW CONTEXT:
 - Current application: {current_app or 'Unknown'}
-{"- Browser detected - checking web activity below" if current_app and any(browser in current_app.lower() for browser in ['chrome', 'firefox', 'brave', 'edge', 'safari']) else ""}
 
-🌐 WEB ACTIVITY CONTEXT:
-- Current website: {current_website or 'N/A (user not in browser)'}
-- Page title: {current_web_title[:100] + '...' if current_web_title and len(current_web_title) > 100 else current_web_title or 'N/A'}
-- ⚠️ IMPORTANT: Web data is ONLY relevant if current app is a browser!
+📊 ACTIVITY FOCUS:
+- Analysis based on window activity only (web bucket removed due to timing issues)
+- Focus on app usage patterns, duration, and context switching behavior
 
 ⏱️ TIMEFRAME STATISTICS:
 Recent 5 minutes:
@@ -351,30 +340,24 @@ Last 30 minutes:
             current_events = [e for e in timeline if e.get('priority') == 'current']
             context_events = [e for e in timeline if e.get('priority') == 'context']
             
-            prompt += f"\n\n🔥 CURRENT ACTIVITY (last 5 minutes - max 30 events):"
-            for i, event in enumerate(current_events):
+            prompt += f"\n\n🔥 CURRENT ACTIVITY (last 5 minutes - window events only):"
+            app_events = [e for e in current_events if e['type'] == 'app']
+            for i, event in enumerate(app_events):
                 duration = event.get('duration_minutes', 0)
                 timeframe = event.get('timeframe_source', 'unknown')
                 
-                if event['type'] == 'app':
-                    prompt += f"\n  {i+1}. [{duration:.1f}min] APP: {event['name']}"
-                    if event.get('title'):
-                        prompt += f" - {event['title'][:60]}"
-                else:  # web
-                    prompt += f"\n  {i+1}. [{duration:.1f}min] WEB: {event['name']}"
-                    if event.get('title'):
-                        prompt += f" - {event['title'][:60]}"
+                prompt += f"\n  {i+1}. [{duration:.1f}min] {event['name']}"
+                if event.get('title'):
+                    prompt += f" - {event['title'][:60]}"
             
             if context_events:
-                prompt += f"\n\n📊 HISTORICAL CONTEXT (significant activities from longer timeframes):"
-                for i, event in enumerate(context_events[:20]):  # Limit context display
+                prompt += f"\n\n📊 HISTORICAL CONTEXT (significant app activities from longer timeframes):"
+                app_context_events = [e for e in context_events if e['type'] == 'app']
+                for i, event in enumerate(app_context_events[:15]):  # Limit context display, apps only
                     duration = event.get('duration_minutes', 0)
                     timeframe = event.get('timeframe_source', 'unknown')
                     
-                    if event['type'] == 'app':
-                        prompt += f"\n  {i+1}. [{duration:.1f}min] [{timeframe}] {event['name']}"
-                    else:  # web
-                        prompt += f"\n  {i+1}. [{duration:.1f}min] [{timeframe}] Web: {event['name']}"
+                    prompt += f"\n  {i+1}. [{duration:.1f}min] [{timeframe}] {event['name']}"
         
         # Add context switches - SHOW ALL SWITCHES
         if context_switches:
@@ -394,45 +377,43 @@ Consider these ADHD-relevant factors:
 4. **Productivity Indicators**: Tools like IDEs, documents, vs entertainment/social media
 5. **Time Investment**: Duration spent on different types of activities
 
-🚦 CRITICAL 3-BUCKET ANALYSIS HIERARCHY:
+🚦 SIMPLIFIED 2-BUCKET ANALYSIS (AFK + WINDOW):
 
 1️⃣ **AFK BUCKET**: 
    → If currently AFK = true → state = "afk" (ignore everything else)
 
-2️⃣ **WINDOW BUCKET** (check current app):
-   → If current app is NOT a browser:
-     - Code editor (vscode, vim, etc.) → "flow" or "working" 
-     - Communication (weixin.exe, slack) → "working"
-     - Entertainment/games → "needs_nudge"
-     - STOP HERE - ignore web data completely
+2️⃣ **WINDOW BUCKET** (focus on current app activity):
+   → Code editor (Code.exe, vim, etc.) → "flow" or "working"
+   → Communication (Weixin.exe, slack) → "working" 
+   → Terminal/PowerShell → "working"
+   → Browser apps → analyze based on context and duration
+   → Entertainment/games → "needs_nudge"
+   → Multiple rapid app switches → "needs_nudge"
 
-3️⃣ **WEB BUCKET** (ONLY if current app IS a browser):
-   → Educational YouTube, documentation → "working"/"flow"
-   → GitHub, work sites → "working"/"flow" 
-   → Social media, entertainment → "needs_nudge"
-   → Multiple tabs/rapid switching → "needs_nudge"
-
-⚠️ CRITICAL: If user is NOT currently in a browser app, web events are historical context only - do NOT use them for current state analysis!
+⚠️ SIMPLIFIED APPROACH: Focus on window activity patterns only. Web bucket data removed due to timing inaccuracies.
 
 EXAMPLE CORRECT ANALYSIS:
 
 🟢 FLOW STATE: 
-- Current app: "code" (VSCode) → Focus on app only, ignore web history → "flow"
-- Current app: "brave.exe" + Site: "docs.python.org" → Educational browsing → "flow"
+- Current app: "Code.exe" → Extended coding session → "flow"
+- Long duration (>15min) in productive app with minimal switching
 
 🟡 WORKING: 
-- Current app: "weixin.exe" → Communication app → "working" (ignore web data)
-- Current app: "brave.exe" + Site: "youtube.com" + Title: "Python Tutorial" → "working"
+- Current app: "Weixin.exe" → Communication/coordination → "working"
+- Current app: "WindowsTerminal.exe" → Development work → "working"
+- Moderate app switching between productive tools
 
 🟠 NEEDS_NUDGE: 
-- Current app: "brave.exe" + Site: "youtube.com" + Title: "Cat Videos" → "needs_nudge"
-- Current app: "game.exe" → Entertainment app → "needs_nudge" (ignore web data)
+- Rapid switching between multiple apps in short time
+- Extended time in entertainment/social apps
+- Fragmented attention patterns
 
 🔴 AFK: Currently AFK = true → "afk" (ignore everything else)
 
-❌ WRONG ANALYSIS EXAMPLES:
-- Current app: "vscode" + User previously visited YouTube → DON'T use web data for state!
-- Current app: "terminal" + Web history shows GitHub → DON'T assume browsing GitHub now!
+✅ SIMPLIFIED ANALYSIS FOCUS:
+- Base decisions on window activity patterns only
+- Consider duration, app types, and switching frequency
+- Ignore web bucket data (removed due to timing inaccuracies)
 
 REQUIRED OUTPUT FORMAT (JSON):
 {{
