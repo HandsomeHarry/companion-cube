@@ -1,5 +1,0 @@
-flask>=3.0.0
-llama-cpp-python>=0.2.90
-numpy>=1.26.0
-werkzeug>=3.0.0
-requests>=2.31.0
