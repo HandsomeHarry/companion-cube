@@ -1,0 +1,26 @@
+[
+  {
+    "date": "2025-07-07",
+    "stats": {
+      "total_active_minutes": 625.7593166666666,
+      "focus_sessions": 2,
+      "total_distractions": 1,
+      "distraction_time": 3.3507,
+      "top_apps": [
+        "explorer.exe",
+        "weixin.exe",
+        "brave.exe",
+        "code.exe",
+        "windowsterminal.exe"
+      ],
+      "longest_focus": 370.1149,
+      "app_switches": 137,
+      "key_activities": [
+        "Video meeting",
+        "Programming",
+        "Team communication"
+      ]
+    },
+    "interventions": 0
+  }
+]

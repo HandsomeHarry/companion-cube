@@ -71,9 +71,14 @@ class CompanionCube:
     def _signal_handler(self, signum, frame):
         """Handle Ctrl+C gracefully"""
         print("\n\n💫 Companion Cube shutting down...")
-        self.generate_end_of_day_summary()
-        print("Great work today! See you next time! 🌟")
-        sys.exit(0)
+        try:
+            self.generate_end_of_day_summary()
+        except Exception as e:
+            logger.error(f"Error generating shutdown summary: {e}")
+            print("Had some trouble with the daily summary, but that's okay!")
+        finally:
+            print("Great work today! See you next time! 🌟")
+            sys.exit(0)
     
     def test_connections(self) -> Dict[str, any]:
         """Test connections to ActivityWatch and Ollama"""
@@ -416,43 +421,66 @@ class CompanionCube:
         print("=" * 60)
         
         try:
-            # Get today's data
-            today_data = self.aw_client.get_multi_timeframe_data()['today']
-            today_summary = self.event_processor.filter_and_summarize_data({'today': today_data})['today']
+            # Get today's data with error handling
+            try:
+                multi_timeframe_data = self.aw_client.get_multi_timeframe_data()
+                today_data = multi_timeframe_data.get('today', {'window': [], 'web': [], 'afk': []})
+            except Exception as e:
+                logger.error(f"Error getting activity data: {e}")
+                today_data = {'window': [], 'web': [], 'afk': []}
             
-            # Get daily statistics
-            daily_stats = self.event_processor.get_daily_summary(today_summary)
+            # Process the data
+            try:
+                today_summary = self.event_processor.filter_and_summarize_data({'today': today_data})['today']
+                daily_stats = self.event_processor.get_daily_summary(today_summary)
+            except Exception as e:
+                logger.error(f"Error processing activity data: {e}")
+                # Create empty stats
+                daily_stats = {
+                    'total_active_minutes': 0,
+                    'focus_sessions': 0,
+                    'total_distractions': 0,
+                    'distraction_time': 0,
+                    'top_apps': [],
+                    'longest_focus': 0,
+                    'app_switches': 0,
+                    'key_activities': []
+                }
             
             # Create summary message
             summary_parts = []
             
             # Active time
-            active_hours = daily_stats['total_active_minutes'] / 60
+            active_hours = daily_stats.get('total_active_minutes', 0) / 60
             summary_parts.append(f"🕐 Active time: {active_hours:.1f} hours")
             
             # Focus sessions
-            focus_count = daily_stats['focus_sessions']
-            longest_focus = daily_stats['longest_focus']
+            focus_count = daily_stats.get('focus_sessions', 0)
+            longest_focus = daily_stats.get('longest_focus', 0)
             if focus_count > 0:
                 summary_parts.append(f"🎯 Focus sessions: {focus_count} (longest: {longest_focus:.0f} min)")
+            else:
+                summary_parts.append("🎯 Focus sessions: 0")
             
             # Key activities
-            if daily_stats['key_activities']:
-                activities = ", ".join(daily_stats['key_activities'][:3])
+            key_activities = daily_stats.get('key_activities', [])
+            if key_activities:
+                activities = ", ".join(key_activities[:3])
                 summary_parts.append(f"💼 Main activities: {activities}")
             
             # Distractions
-            distraction_time = daily_stats['distraction_time']
+            distraction_time = daily_stats.get('distraction_time', 0)
             if distraction_time > 0:
                 summary_parts.append(f"🌐 Distraction time: {distraction_time:.0f} min")
             
             # Context switches
-            switches = daily_stats['app_switches']
+            switches = daily_stats.get('app_switches', 0)
             summary_parts.append(f"🔄 Context switches: {switches}")
             
             # Top apps
-            if daily_stats['top_apps']:
-                apps = ", ".join(daily_stats['top_apps'][:3])
+            top_apps = daily_stats.get('top_apps', [])
+            if top_apps:
+                apps = ", ".join(top_apps[:3])
                 summary_parts.append(f"📱 Top apps: {apps}")
             
             # Display summary
@@ -468,8 +496,8 @@ class CompanionCube:
             if active_hours > 4:
                 print(f"   • You were active for {active_hours:.1f} hours - great stamina!")
             
-            if daily_stats['key_activities']:
-                print(f"   • You worked on important tasks like {daily_stats['key_activities'][0]}")
+            if key_activities:
+                print(f"   • You worked on important tasks like {key_activities[0]}")
             
             print("   • Every bit of progress counts, and you showed up today!")
             
@@ -480,11 +508,20 @@ class CompanionCube:
                 print("   (Feature coming soon!)")
             
             # Save summary to file
-            self._save_daily_summary(daily_stats)
+            try:
+                self._save_daily_summary(daily_stats)
+            except Exception as e:
+                logger.error(f"Error saving daily summary: {e}")
             
         except Exception as e:
             logger.error(f"Error generating daily summary: {e}")
             print("Had trouble generating today's summary, but I'm sure you did great! 💪")
+            
+            # Show at least something positive
+            print("\n💝 Remember:")
+            print("   • You used Companion Cube today - that shows you care about productivity!")
+            print("   • Every bit of progress counts, and you showed up today!")
+            print("   • Tomorrow is a fresh start with new opportunities!")
         
         print("=" * 60 + "\n")
     
