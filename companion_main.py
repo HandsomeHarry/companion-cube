@@ -200,6 +200,238 @@ class CompanionCube:
                 logger.error(f"Error in main loop: {e}")
                 time.sleep(self.check_interval)
     
+    def analyze_user_state_with_llm(self, multi_timeframe_data: Dict) -> Dict:
+        """Use LLM to analyze raw activity data and determine user state"""
+        try:
+            # Prepare raw data for LLM analysis
+            raw_data = self.event_processor.prepare_raw_data_for_llm(multi_timeframe_data)
+            
+            # Create comprehensive prompt for state analysis
+            analysis_prompt = self._create_state_analysis_prompt(raw_data)
+            
+            if self.verbose:
+                print(f"\n🧠 LLM STATE ANALYSIS")
+                print(f"Raw data summary: {len(raw_data.get('activity_timeline', []))} timeline events")
+                print(f"Context switches: {len(raw_data.get('context_switches', []))}")
+                print("Sending comprehensive data to LLM for analysis...")
+            
+            # Get LLM analysis
+            system_prompt = """You are an expert ADHD productivity analyst. Analyze the provided raw activity data and determine the user's current productivity state. Be precise and data-driven in your analysis. Return your analysis in the exact JSON format requested."""
+            
+            request_data = {
+                "model": self.model,
+                "prompt": analysis_prompt,
+                "system": system_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.3,  # Lower temperature for more consistent analysis
+                    "num_predict": 400
+                }
+            }
+            
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json=request_data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                llm_response = result.get("response", "").strip()
+                
+                if self.verbose:
+                    print(f"🤖 LLM Analysis Response:")
+                    print(llm_response)
+                
+                # Parse structured response
+                parsed_analysis = self._parse_llm_state_analysis(llm_response)
+                
+                if parsed_analysis:
+                    return parsed_analysis
+                else:
+                    if self.verbose:
+                        print("⚠️ Failed to parse LLM response, using fallback analysis")
+                    return self._fallback_state_analysis(raw_data)
+            else:
+                if self.verbose:
+                    print(f"⚠️ LLM request failed (status {response.status_code}), using fallback")
+                return self._fallback_state_analysis(raw_data)
+                
+        except Exception as e:
+            logger.debug(f"Error in LLM state analysis: {e}")
+            if self.verbose:
+                print(f"⚠️ LLM analysis error: {e}")
+            return self._fallback_state_analysis(raw_data)
+    
+    def _create_state_analysis_prompt(self, raw_data: Dict) -> str:
+        """Create a comprehensive prompt for LLM state analysis"""
+        
+        # Extract key statistics
+        recent_timeframe = raw_data.get('timeframes', {}).get('5_minutes', {})
+        medium_timeframe = raw_data.get('timeframes', {}).get('30_minutes', {})
+        
+        recent_stats = recent_timeframe.get('statistics', {})
+        medium_stats = medium_timeframe.get('statistics', {})
+        
+        timeline = raw_data.get('activity_timeline', [])
+        context_switches = raw_data.get('context_switches', [])
+        
+        prompt = f"""Analyze this user's raw activity data and determine their current productivity state for ADHD support.
+
+📊 RAW ACTIVITY DATA ANALYSIS
+
+⏱️ TIMEFRAME STATISTICS:
+Recent 5 minutes:
+- Active time: {recent_stats.get('total_active_minutes', 0)} minutes
+- Context switches: {recent_stats.get('context_switches', 0)}
+- Unique apps: {len(recent_stats.get('unique_apps', []))}
+- Unique domains: {len(recent_stats.get('unique_domains', []))}
+- Apps used: {', '.join(recent_stats.get('unique_apps', [])[:5])}
+
+Last 30 minutes:
+- Active time: {medium_stats.get('total_active_minutes', 0)} minutes  
+- Context switches: {medium_stats.get('context_switches', 0)}
+- Unique apps: {len(medium_stats.get('unique_apps', []))}
+- Unique domains: {len(medium_stats.get('unique_domains', []))}
+
+📅 ACTIVITY TIMELINE (Most Recent):"""
+
+        # Add timeline details
+        if timeline:
+            prompt += "\nChronological activity sequence:"
+            for i, event in enumerate(timeline[-10:]):  # Last 10 events
+                duration = event.get('duration_minutes', 0)
+                if event['type'] == 'app':
+                    prompt += f"\n  {i+1}. [{duration:.1f}min] {event['name']}"
+                    if event.get('title'):
+                        prompt += f" - {event['title'][:60]}"
+                else:  # web
+                    prompt += f"\n  {i+1}. [{duration:.1f}min] Web: {event['name']}"
+                    if event.get('title'):
+                        prompt += f" - {event['title'][:60]}"
+        
+        # Add context switches
+        if context_switches:
+            prompt += f"\n\n🔄 CONTEXT SWITCHES ({len(context_switches)} total):"
+            for i, switch in enumerate(context_switches[-5:]):  # Last 5 switches
+                prompt += f"\n  {i+1}. {switch['from_app']} → {switch['to_app']}"
+        
+        prompt += f"""
+
+🎯 ANALYSIS TASK:
+Based on this raw data, determine the user's current state for ADHD productivity support.
+
+Consider these ADHD-relevant factors:
+1. **Focus Duration**: Long sessions (>15min) in one app suggest flow state
+2. **Context Switching**: Rapid switches may indicate distractibility or task exploration  
+3. **Activity Patterns**: Are they deep in work, browsing, or switching between tasks?
+4. **Productivity Indicators**: Tools like IDEs, documents, vs entertainment/social media
+5. **Time Investment**: Duration spent on different types of activities
+
+EXAMPLE ANALYSIS PATTERNS:
+
+🟢 FLOW STATE: 20+ minutes in coding app with minimal switches
+- current_state: "flow"
+- focus_trend: "maintaining_focus" 
+- distraction_trend: "low"
+
+🟡 WORKING: Mix of productive apps, some context switching, but focused work evident
+- current_state: "working"  
+- focus_trend: "variable"
+- distraction_trend: "moderate"
+
+🟠 NEEDS_NUDGE: High context switching, entertainment sites, or rapid app changes
+- current_state: "needs_nudge"
+- focus_trend: "declining" 
+- distraction_trend: "increasing"
+
+🔴 AFK: No recent activity or only AFK events
+- current_state: "afk"
+- focus_trend: "none"
+- distraction_trend: "none"
+
+REQUIRED OUTPUT FORMAT (JSON):
+{{
+  "current_state": "[flow|working|needs_nudge|afk]",
+  "focus_trend": "[maintaining_focus|entering_focus|losing_focus|variable|none]", 
+  "distraction_trend": "[low|moderate|increasing|decreasing|high]",
+  "confidence": "[high|medium|low]",
+  "primary_activity": "[brief description]",
+  "reasoning": "[2-3 sentence explanation of the analysis]"
+}}
+
+Analyze the data and respond with ONLY the JSON object above."""
+        
+        return prompt
+    
+    def _parse_llm_state_analysis(self, llm_response: str) -> Optional[Dict]:
+        """Parse the structured LLM response for state analysis"""
+        try:
+            import json
+            
+            # Try to extract JSON from the response
+            # Look for JSON-like content between curly braces
+            start_idx = llm_response.find('{')
+            end_idx = llm_response.rfind('}') + 1
+            
+            if start_idx >= 0 and end_idx > start_idx:
+                json_str = llm_response[start_idx:end_idx]
+                parsed = json.loads(json_str)
+                
+                # Validate required fields
+                required_fields = ['current_state', 'focus_trend', 'distraction_trend']
+                if all(field in parsed for field in required_fields):
+                    # Validate state values
+                    valid_states = ['flow', 'working', 'needs_nudge', 'afk']
+                    valid_focus_trends = ['maintaining_focus', 'entering_focus', 'losing_focus', 'variable', 'none']
+                    valid_distraction_trends = ['low', 'moderate', 'increasing', 'decreasing', 'high']
+                    
+                    if (parsed['current_state'] in valid_states and
+                        parsed['focus_trend'] in valid_focus_trends and
+                        parsed['distraction_trend'] in valid_distraction_trends):
+                        return parsed
+                    
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
+            logger.debug(f"Error parsing LLM state analysis: {e}")
+        
+        return None
+    
+    def _fallback_state_analysis(self, raw_data: Dict) -> Dict:
+        """Provide fallback state analysis when LLM is unavailable"""
+        recent_stats = raw_data.get('timeframes', {}).get('5_minutes', {}).get('statistics', {})
+        timeline = raw_data.get('activity_timeline', [])
+        context_switches = raw_data.get('context_switches', [])
+        
+        # Simple rule-based fallback
+        active_time = recent_stats.get('total_active_minutes', 0)
+        switch_count = recent_stats.get('context_switches', 0)
+        
+        if active_time < 0.5:
+            current_state = 'afk'
+            focus_trend = 'none'
+            distraction_trend = 'none'
+        elif switch_count >= 5:
+            current_state = 'needs_nudge'
+            focus_trend = 'losing_focus'
+            distraction_trend = 'increasing'
+        elif active_time >= 3 and switch_count <= 2:
+            current_state = 'flow'
+            focus_trend = 'maintaining_focus'
+            distraction_trend = 'low'
+        else:
+            current_state = 'working'
+            focus_trend = 'variable'
+            distraction_trend = 'moderate'
+        
+        return {
+            'current_state': current_state,
+            'focus_trend': focus_trend,
+            'distraction_trend': distraction_trend,
+            'confidence': 'low',
+            'primary_activity': 'Unknown (LLM unavailable)',
+            'reasoning': 'Fallback analysis based on simple activity metrics.'
+        }
+
     def check_activity(self):
         """Check current activity and respond if appropriate"""
         try:
@@ -216,32 +448,30 @@ class CompanionCube:
                     total_events = sum(len(events) for events in data.values())
                     print(f"  {timeframe}: {total_events} total events")
             
-            # Filter and summarize data
+            # Use LLM to analyze raw data and determine user state
+            llm_analysis = self.analyze_user_state_with_llm(multi_timeframe_data)
+            
+            # Extract state information from LLM analysis
+            user_state = llm_analysis['current_state']
+            focus_trend = llm_analysis['focus_trend']
+            distraction_trend = llm_analysis['distraction_trend']
+            
+            logger.info(f"LLM-determined user state: {user_state} (confidence: {llm_analysis.get('confidence', 'unknown')})")
+            
+            if self.verbose:
+                print(f"\n🎯 LLM ANALYSIS RESULTS:")
+                print(f"  Current State: {user_state}")
+                print(f"  Focus Trend: {focus_trend}")
+                print(f"  Distraction Trend: {distraction_trend}")
+                print(f"  Confidence: {llm_analysis.get('confidence', 'unknown')}")
+                print(f"  Primary Activity: {llm_analysis.get('primary_activity', 'Unknown')}")
+                print(f"  Reasoning: {llm_analysis.get('reasoning', 'No reasoning provided')}")
+            
+            # Still maintain legacy summaries for compatibility with other features
             summaries = self.event_processor.filter_and_summarize_data(multi_timeframe_data)
             
-            # Create behavior comparison
-            comparison = self.event_processor.create_behavior_comparison(summaries)
-            
-            if self.verbose:
-                five_min = summaries.get('5_minutes', {})
-                print(f"\n🧠 Analysis Results:")
-                print(f"  Current behavior: {five_min.get('behavior_pattern', 'unknown')}")
-                print(f"  App switches: {five_min.get('app_switches', 0)}")
-                print(f"  Focus sessions: {len(five_min.get('focus_sessions', []))}")
-                print(f"  Distractions: {len(five_min.get('distractions', []))}")
-                print(f"  Focus trend: {comparison.get('focus_trend', 'unknown')}")
-                print(f"  Distraction trend: {comparison.get('distraction_trend', 'unknown')}")
-            
-            # Generate context for LLM
-            context = self.event_processor.generate_llm_context(summaries, comparison)
-            
-            # Get current state
-            user_state = comparison['current_state']
-            logger.info(f"Detected user state: {user_state}")
-            
-            if self.verbose:
-                print(f"🎯 User State: {user_state}")
-                print(f"📝 Context: {context}")
+            # Create a context string for the intervention prompt
+            context = f"Primary activity: {llm_analysis.get('primary_activity', 'Unknown')}. {llm_analysis.get('reasoning', '')}"
             
             # Update daily stats
             five_min_summary = summaries.get('5_minutes', {})

@@ -90,10 +90,10 @@ The system consists of three main components that work together:
    - Provides multi-timeframe data collection (5min, 10min, 30min, 1hr, today)
 
 2. **EventProcessor** (`event_processor.py`)
-   - Filters noise from raw ActivityWatch events
-   - Detects ADHD-relevant patterns: rapid task switching, hyperfocus, distractions
-   - Determines user states: `flow`, `working`, `needs_nudge`, `afk`
-   - Generates context-aware prompts for the LLM
+   - Prepares raw activity data with minimal pre-processing for LLM analysis
+   - Provides detailed activity timelines, context switches, and usage statistics
+   - Creates chronological activity sequences and app transition data
+   - **NEW**: `prepare_raw_data_for_llm()` method provides comprehensive raw data instead of pre-categorized summaries
 
 3. **CompanionCube** (`companion_main.py`)
    - Main orchestrator with configurable intervention logic
@@ -101,6 +101,8 @@ The system consists of three main components that work together:
    - Manages intervention cooldowns (flow: 45min, working: 15min, nudge: 5min)
    - Persists data in `data/` directory
    - **LLM-Powered Features**: 
+     - **NEW**: Raw data analysis for state determination (`analyze_user_state_with_llm()`)
+     - **NEW**: Structured JSON response parsing for consistent state detection
      - Daily summaries with enhanced context and timing
      - Hourly activity summaries (auto-generated every hour)
      - Weekly pattern insights and trends
@@ -130,12 +132,18 @@ The client handles timezone format preferences and automatically retries. If per
 
 ## Data Flow
 
-1. ActivityWatch events → filtered summaries → behavior patterns → user state
-2. State + context → ADHD-specific prompt → Ollama LLM → supportive response
-3. All interactions logged to `data/interactions.json`
-4. Daily summaries saved to `data/daily_summaries.json`
-5. Hourly summaries auto-generated and saved to `data/hourly_summaries.json`
-6. Pattern analysis uses historical data for productivity insights
+**NEW LLM-Driven Analysis Pipeline:**
+1. ActivityWatch raw events → minimal filtering → comprehensive data structure
+2. Raw data (timeline, context switches, statistics) → LLM analysis prompt
+3. LLM determines: `current_state`, `focus_trend`, `distraction_trend` + reasoning
+4. Structured JSON response parsing → validated state determination  
+5. State + LLM context → ADHD-specific intervention prompt → supportive response
+
+**Data Persistence:**
+6. All interactions logged to `data/interactions.json`
+7. Daily summaries saved to `data/daily_summaries.json`
+8. Hourly summaries auto-generated and saved to `data/hourly_summaries.json`
+9. Pattern analysis uses historical data for productivity insights
 
 ## Critical Implementation Details
 
@@ -148,6 +156,9 @@ The client handles timezone format preferences and automatically retries. If per
 - **Signal Handling**: Proper cleanup on Ctrl+C with signal handlers
 - **Intervention Cooldowns**: Prevents over-notification (flow: 45min, working: 15min, nudge: 5min)
 - **LLM Integration**: Multiple specialized prompts for different analysis types
+- **NEW LLM State Analysis**: Raw data analysis with structured JSON responses for state determination
+- **Fallback Logic**: Rule-based analysis when LLM is unavailable 
+- **Response Validation**: Strict parsing and validation of LLM JSON outputs
 - **Verbose Mode**: Real-time minute-by-minute activity tracking and hourly LLM summaries
 - **Pattern Analysis**: Cross-references hourly, daily, and interaction data for insights
 

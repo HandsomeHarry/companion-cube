@@ -337,11 +337,177 @@ class EventProcessor:
         
         return comparison
     
+    def prepare_raw_data_for_llm(self, multi_timeframe_data: Dict[str, Dict[str, List[dict]]]) -> Dict:
+        """Prepare raw activity data for LLM analysis with minimal processing"""
+        raw_data = {
+            'timeframes': {},
+            'activity_timeline': [],
+            'context_switches': [],
+            'afk_periods': [],
+            'metadata': {
+                'analysis_timestamp': datetime.now().isoformat(),
+                'total_timeframes': len(multi_timeframe_data)
+            }
+        }
+        
+        for timeframe, data in multi_timeframe_data.items():
+            timeframe_data = {
+                'timeframe': timeframe,
+                'window_events': [],
+                'web_events': [],
+                'afk_events': data.get('afk', []),
+                'statistics': {
+                    'total_events': 0,
+                    'unique_apps': set(),
+                    'unique_domains': set(),
+                    'context_switches': 0,
+                    'total_active_minutes': 0
+                }
+            }
+            
+            # Process window events with minimal filtering
+            window_events = data.get('window', [])
+            if window_events:
+                # Sort by timestamp
+                window_events.sort(key=lambda x: x['timestamp'])
+                
+                processed_windows = []
+                last_app = None
+                context_switches = 0
+                total_duration = 0
+                
+                for event in window_events:
+                    app = event.get('data', {}).get('app', '').strip()
+                    title = event.get('data', {}).get('title', '').strip()
+                    duration = event.get('duration', 0) / 60  # Convert to minutes
+                    timestamp = event.get('timestamp', '')
+                    
+                    # Skip very short events (under 5 seconds) but keep the data structure
+                    if duration >= 0.08:  # 5 seconds = 0.083 minutes
+                        processed_event = {
+                            'app': app,
+                            'title': title,
+                            'duration_minutes': round(duration, 2),
+                            'timestamp': timestamp,
+                            'raw_duration_seconds': event.get('duration', 0)
+                        }
+                        processed_windows.append(processed_event)
+                        
+                        # Track statistics
+                        if app:
+                            timeframe_data['statistics']['unique_apps'].add(app.lower())
+                            total_duration += duration
+                            
+                            # Count context switches
+                            if last_app and last_app != app.lower():
+                                context_switches += 1
+                            last_app = app.lower()
+                
+                timeframe_data['window_events'] = processed_windows
+                timeframe_data['statistics']['context_switches'] = context_switches
+                timeframe_data['statistics']['total_active_minutes'] = round(total_duration, 2)
+            
+            # Process web events with minimal filtering
+            web_events = data.get('web', [])
+            if web_events:
+                web_events.sort(key=lambda x: x['timestamp'])
+                
+                processed_web = []
+                for event in web_events:
+                    url = event.get('data', {}).get('url', '').strip()
+                    title = event.get('data', {}).get('title', '').strip()
+                    duration = event.get('duration', 0) / 60
+                    timestamp = event.get('timestamp', '')
+                    
+                    if duration >= 0.08 and url:  # 5 seconds minimum
+                        domain = self._extract_domain(url)
+                        processed_event = {
+                            'url': url,
+                            'domain': domain,
+                            'title': title,
+                            'duration_minutes': round(duration, 2),
+                            'timestamp': timestamp,
+                            'raw_duration_seconds': event.get('duration', 0)
+                        }
+                        processed_web.append(processed_event)
+                        
+                        if domain:
+                            timeframe_data['statistics']['unique_domains'].add(domain)
+                
+                timeframe_data['web_events'] = processed_web
+            
+            # Convert sets to lists for JSON serialization
+            timeframe_data['statistics']['unique_apps'] = list(timeframe_data['statistics']['unique_apps'])
+            timeframe_data['statistics']['unique_domains'] = list(timeframe_data['statistics']['unique_domains'])
+            timeframe_data['statistics']['total_events'] = len(timeframe_data['window_events']) + len(timeframe_data['web_events'])
+            
+            raw_data['timeframes'][timeframe] = timeframe_data
+        
+        # Generate activity timeline for the most recent period (5 minutes)
+        recent_data = raw_data['timeframes'].get('5_minutes', {})
+        if recent_data:
+            raw_data['activity_timeline'] = self._create_activity_timeline(
+                recent_data.get('window_events', []), 
+                recent_data.get('web_events', [])
+            )
+            
+            # Extract context switches with timing
+            raw_data['context_switches'] = self._extract_context_switches(recent_data.get('window_events', []))
+        
+        return raw_data
+    
+    def _create_activity_timeline(self, window_events: List[dict], web_events: List[dict]) -> List[dict]:
+        """Create a chronological timeline of all activities"""
+        timeline = []
+        
+        # Add window events
+        for event in window_events:
+            timeline.append({
+                'type': 'app',
+                'name': event['app'],
+                'title': event.get('title', ''),
+                'duration_minutes': event['duration_minutes'],
+                'timestamp': event['timestamp']
+            })
+        
+        # Add web events
+        for event in web_events:
+            timeline.append({
+                'type': 'web',
+                'name': event['domain'],
+                'title': event.get('title', ''),
+                'url': event.get('url', ''),
+                'duration_minutes': event['duration_minutes'],
+                'timestamp': event['timestamp']
+            })
+        
+        # Sort by timestamp
+        timeline.sort(key=lambda x: x['timestamp'])
+        return timeline
+    
+    def _extract_context_switches(self, window_events: List[dict]) -> List[dict]:
+        """Extract context switch information with timing"""
+        switches = []
+        last_app = None
+        
+        for event in window_events:
+            app = event['app']
+            if last_app and last_app != app:
+                switches.append({
+                    'from_app': last_app,
+                    'to_app': app,
+                    'timestamp': event['timestamp'],
+                    'switch_type': 'app_change'
+                })
+            last_app = app
+        
+        return switches
+
     def generate_llm_context(self, summaries: Dict[str, Dict], comparison: Dict) -> str:
-        """Generate a concise context string for the LLM"""
-        # Get the most recent summary
+        """Generate a concise context string for the LLM (legacy method for backward compatibility)"""
+        # This method is now primarily for backward compatibility
+        # The new LLM analysis will use prepare_raw_data_for_llm instead
         five_min = summaries.get('5_minutes', {})
-        thirty_min = summaries.get('30_minutes', {})
         
         context_parts = []
         
@@ -354,38 +520,11 @@ class EventProcessor:
                 app_name, duration = top_app[0]
                 context_parts.append(f"Currently using {app_name} for {duration:.1f} minutes.")
         
-        # Behavior pattern
-        pattern = five_min.get('behavior_pattern', '')
-        if pattern:
-            context_parts.append(f"Behavior pattern: {pattern.replace('_', ' ')}.")
-        
-        # Focus information
-        focus_trend = comparison.get('focus_trend', '')
-        if focus_trend == 'entering_focus':
-            context_parts.append("Just entering a focus session.")
-        elif focus_trend == 'maintaining_focus':
-            context_parts.append("Maintaining good focus.")
-        elif focus_trend == 'losing_focus':
-            context_parts.append("Focus appears to be waning.")
-        
-        # Distraction information
-        distraction_trend = comparison.get('distraction_trend', '')
-        if distraction_trend == 'increasing':
-            distractions = five_min.get('distractions', [])
-            if distractions:
-                dist_names = [d['name'] for d in distractions[:2]]
-                context_parts.append(f"Recent distractions: {', '.join(dist_names)}.")
-        
-        # Key activities
-        activities = five_min.get('key_activities', [])
-        if activities:
-            context_parts.append(f"Working on: {activities[0]}.")
-        
         # App switching
         if five_min.get('app_switches', 0) > 3:
             context_parts.append(f"High context switching ({five_min['app_switches']} switches).")
         
-        return " ".join(context_parts)
+        return " ".join(context_parts) if context_parts else "Limited activity data available."
     
     def _categorize_app(self, app: str) -> str:
         """Categorize an application as productive, distraction, or neutral"""
