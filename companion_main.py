@@ -40,7 +40,7 @@ class CompanionCube:
         
         # Ollama settings
         self.ollama_url = "http://localhost:11434"
-        self.model = "cas/mistral-7b-instruct-v0.3"  # Default model
+        self.model = "mistral"  # Default model
         
         # File paths for data storage
         self.data_dir = Path("data")
@@ -48,9 +48,12 @@ class CompanionCube:
         self.interactions_file = self.data_dir / "interactions.json"
         self.good_days_file = self.data_dir / "good_days.json"
         self.daily_summaries_file = self.data_dir / "daily_summaries.json"
+        self.hourly_summaries_file = self.data_dir / "hourly_summaries.json"
         
         # State tracking
         self.last_intervention = datetime.now(timezone.utc)
+        self.last_hourly_summary = datetime.now(timezone.utc)
+        self.last_minute_summary = datetime.now(timezone.utc)
         self.intervention_cooldown = {
             "flow": 45,  # Don't interrupt flow for 45 minutes
             "working": 15,  # Check in every 15 minutes when working
@@ -182,6 +185,13 @@ class CompanionCube:
                     self.generate_end_of_day_summary()
                     self.last_summary_date = current_date
                     self.daily_stats = {'focus_sessions': 0, 'distractions': 0, 'interventions': 0}
+                
+                # Check for hourly summaries
+                self.check_hourly_summary()
+                
+                # Check for minute summaries in verbose mode
+                if self.verbose:
+                    self.check_minute_summary()
                 
                 self.check_activity()
                 time.sleep(self.check_interval)
@@ -415,101 +425,51 @@ class CompanionCube:
             json.dump(interactions, f, indent=2)
     
     def generate_end_of_day_summary(self):
-        """Generate and display end of day summary"""
+        """Generate and display end of day summary using LLM"""
         print("\n" + "=" * 60)
         print("🌟 Daily Summary 🌟")
         print("=" * 60)
         
         try:
-            # Get today's data with error handling
-            try:
-                multi_timeframe_data = self.aw_client.get_multi_timeframe_data()
-                today_data = multi_timeframe_data.get('today', {'window': [], 'web': [], 'afk': []})
-            except Exception as e:
-                logger.error(f"Error getting activity data: {e}")
-                today_data = {'window': [], 'web': [], 'afk': []}
+            # Get comprehensive data for LLM analysis
+            print("📊 Analyzing today's patterns...")
             
-            # Process the data
-            try:
-                today_summary = self.event_processor.filter_and_summarize_data({'today': today_data})['today']
-                daily_stats = self.event_processor.get_daily_summary(today_summary)
-            except Exception as e:
-                logger.error(f"Error processing activity data: {e}")
-                # Create empty stats
-                daily_stats = {
-                    'total_active_minutes': 0,
-                    'focus_sessions': 0,
-                    'total_distractions': 0,
-                    'distraction_time': 0,
-                    'top_apps': [],
-                    'longest_focus': 0,
-                    'app_switches': 0,
-                    'key_activities': []
-                }
+            # Get activity data efficiently
+            summary_data = self._collect_summary_data()
             
-            # Create summary message
-            summary_parts = []
+            # Generate LLM-powered summary
+            llm_summary = self._generate_llm_daily_summary(summary_data)
             
-            # Active time
-            active_hours = daily_stats.get('total_active_minutes', 0) / 60
-            summary_parts.append(f"🕐 Active time: {active_hours:.1f} hours")
-            
-            # Focus sessions
-            focus_count = daily_stats.get('focus_sessions', 0)
-            longest_focus = daily_stats.get('longest_focus', 0)
-            if focus_count > 0:
-                summary_parts.append(f"🎯 Focus sessions: {focus_count} (longest: {longest_focus:.0f} min)")
+            if llm_summary:
+                print(llm_summary)
             else:
-                summary_parts.append("🎯 Focus sessions: 0")
+                # Fallback to basic summary if LLM fails
+                self._show_basic_summary(summary_data)
             
-            # Key activities
-            key_activities = daily_stats.get('key_activities', [])
-            if key_activities:
-                activities = ", ".join(key_activities[:3])
-                summary_parts.append(f"💼 Main activities: {activities}")
-            
-            # Distractions
-            distraction_time = daily_stats.get('distraction_time', 0)
-            if distraction_time > 0:
-                summary_parts.append(f"🌐 Distraction time: {distraction_time:.0f} min")
-            
-            # Context switches
-            switches = daily_stats.get('app_switches', 0)
-            summary_parts.append(f"🔄 Context switches: {switches}")
-            
-            # Top apps
-            top_apps = daily_stats.get('top_apps', [])
-            if top_apps:
-                apps = ", ".join(top_apps[:3])
-                summary_parts.append(f"📱 Top apps: {apps}")
-            
-            # Display summary
-            for part in summary_parts:
-                print(part)
-            
-            # Generate encouragement
-            print("\n💝 Remember:")
-            
-            if focus_count > 0:
-                print(f"   • You had {focus_count} deep focus sessions today - that's amazing!")
-            
-            if active_hours > 4:
-                print(f"   • You were active for {active_hours:.1f} hours - great stamina!")
-            
-            if key_activities:
-                print(f"   • You worked on important tasks like {key_activities[0]}")
-            
-            print("   • Every bit of progress counts, and you showed up today!")
-            
-            # Ask about saving as good day
-            if focus_count >= 2 or active_hours >= 4:
-                print("\n✨ This looks like it was a productive day!")
-                print("   Would you like to save this pattern as a 'good day' template?")
-                print("   (Feature coming soon!)")
-            
-            # Save summary to file
+            # Save the summary data
             try:
-                self._save_daily_summary(daily_stats)
+                summary_to_save = {
+                    "date": datetime.now().date().isoformat(),
+                    "llm_summary": llm_summary if llm_summary else "LLM unavailable",
+                    "session_data": summary_data,
+                    "companion_active": True
+                }
+                
+                summaries = []
+                if self.daily_summaries_file.exists():
+                    try:
+                        with open(self.daily_summaries_file, 'r') as f:
+                            summaries = json.load(f)
+                    except:
+                        summaries = []
+                
+                summaries.append(summary_to_save)
+                if len(summaries) > 30:
+                    summaries = summaries[-30:]
+                
+                with open(self.daily_summaries_file, 'w') as f:
+                    json.dump(summaries, f, indent=2)
+                    
             except Exception as e:
                 logger.error(f"Error saving daily summary: {e}")
             
@@ -524,6 +484,400 @@ class CompanionCube:
             print("   • Tomorrow is a fresh start with new opportunities!")
         
         print("=" * 60 + "\n")
+    
+    def _collect_summary_data(self) -> Dict:
+        """Collect comprehensive data for daily summary"""
+        summary_data = {
+            'session_stats': {
+                'interventions': self.daily_stats.get('interventions', 0),
+                'focus_sessions_detected': self.daily_stats.get('focus_sessions', 0),
+                'distractions_detected': self.daily_stats.get('distractions', 0),
+                'mode': self.mode,
+                'check_interval': self.check_interval
+            },
+            'interactions': [],
+            'activity_sample': {},
+            'time_info': {
+                'date': datetime.now().strftime('%A, %B %d, %Y'),
+                'session_duration': 'Unknown'
+            }
+        }
+        
+        # Get recent interactions from file
+        try:
+            if self.interactions_file.exists():
+                with open(self.interactions_file, 'r') as f:
+                    all_interactions = json.load(f)
+                    
+                # Get today's interactions
+                today = datetime.now().date().isoformat()
+                today_interactions = [
+                    i for i in all_interactions 
+                    if i.get('timestamp', '').startswith(today)
+                ]
+                
+                summary_data['interactions'] = today_interactions[-10:]  # Last 10 interactions
+        except Exception as e:
+            logger.error(f"Error loading interactions: {e}")
+        
+        # Get a sample of recent activity (limited to avoid hanging)
+        try:
+            # Just get last 30 minutes of activity for context
+            window_events = self.aw_client.get_window_events(hours_back=0.5)
+            web_events = self.aw_client.get_web_events(hours_back=0.5)
+            
+            if window_events:
+                # Extract top apps from recent activity
+                app_counts = {}
+                for event in window_events[-20:]:  # Last 20 events only
+                    app = event.get('data', {}).get('app', 'Unknown')
+                    app_counts[app] = app_counts.get(app, 0) + 1
+                
+                summary_data['activity_sample'] = {
+                    'recent_apps': list(app_counts.keys())[:5],
+                    'total_recent_events': len(window_events),
+                    'has_recent_activity': len(window_events) > 0
+                }
+            
+            if web_events:
+                # Extract recent websites
+                domains = []
+                for event in web_events[-10:]:  # Last 10 web events
+                    url = event.get('data', {}).get('url', '')
+                    if url:
+                        domain = self.event_processor._extract_domain(url)
+                        if domain not in domains:
+                            domains.append(domain)
+                
+                summary_data['activity_sample']['recent_websites'] = domains[:3]
+                
+        except Exception as e:
+            logger.error(f"Error getting activity sample: {e}")
+            summary_data['activity_sample'] = {'error': 'Could not retrieve recent activity'}
+        
+        return summary_data
+    
+    def _generate_llm_daily_summary(self, summary_data: Dict) -> Optional[str]:
+        """Generate daily summary using LLM"""
+        try:
+            # Create comprehensive prompt for daily summary
+            prompt = self._create_daily_summary_prompt(summary_data)
+            
+            if self.verbose:
+                print(f"\n{'='*60}")
+                print(f"🧠 DAILY SUMMARY LLM REQUEST")
+                print(f"{'='*60}")
+                print(f"Model: {self.model}")
+                print(f"Data: {json.dumps(summary_data, indent=2)}")
+                print(f"{'='*60}")
+            
+            # Get LLM response with longer limit for daily summary
+            system_prompt = """You are a supportive ADHD productivity coach creating an end-of-day summary. 
+Be encouraging, celebrate small wins, acknowledge challenges without judgment, and provide gentle insights. 
+Keep the tone warm, personal, and supportive. Focus on progress and patterns, not perfection."""
+            
+            request_data = {
+                "model": self.model,
+                "prompt": prompt,
+                "system": system_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.8,
+                    "num_predict": 300  # Longer response for daily summary
+                }
+            }
+            
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json=request_data,
+                timeout=30  # Longer timeout for daily summary
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                llm_response = result.get("response", "").strip()
+                
+                if self.verbose:
+                    print(f"✅ LLM DAILY SUMMARY: {llm_response}")
+                    print(f"{'='*60}\n")
+                
+                return llm_response
+            else:
+                logger.warning(f"Ollama returned status {response.status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error generating LLM daily summary: {e}")
+            return None
+    
+    def _create_daily_summary_prompt(self, summary_data: Dict) -> str:
+        """Create comprehensive prompt for daily summary"""
+        session_stats = summary_data.get('session_stats', {})
+        interactions = summary_data.get('interactions', [])
+        activity_sample = summary_data.get('activity_sample', {})
+        time_info = summary_data.get('time_info', {})
+        
+        prompt = f"""Please analyze this user's ADHD productivity session and create a warm, encouraging daily summary.
+
+📅 DATE: {time_info.get('date', 'Today')}
+⏰ SESSION TIME: {time_info.get('start_time', 'Unknown')} to {time_info.get('current_time', datetime.now().strftime('%H:%M'))}
+
+🤖 COMPANION SESSION DATA:
+- Mode: {session_stats.get('mode', 'coach')}
+- Total interventions/check-ins: {session_stats.get('interventions', 0)}
+- Focus sessions detected: {session_stats.get('focus_sessions_detected', 0)}
+- Distractions noticed: {session_stats.get('distractions_detected', 0)}
+- Check interval: {session_stats.get('check_interval', 60)} seconds
+- Session duration: {session_stats.get('session_duration_hours', 'Unknown')} hours
+
+💬 INTERACTIONS TODAY: {len(interactions)} total
+"""
+
+        # Add interaction details if available
+        if interactions:
+            prompt += "\nRecent companion interactions:\n"
+            for interaction in interactions[-5:]:  # Last 5 interactions
+                state = interaction.get('state', 'unknown')
+                response = interaction.get('response', 'N/A')[:100]  # Truncate long responses
+                prompt += f"- {state}: {response}\n"
+        
+        # Add activity context if available
+        if activity_sample.get('recent_apps'):
+            prompt += f"\n📱 RECENT APPS USED: {', '.join(activity_sample['recent_apps'])}"
+        
+        if activity_sample.get('recent_websites'):
+            prompt += f"\n🌐 RECENT WEBSITES: {', '.join(activity_sample['recent_websites'])}"
+        
+        if activity_sample.get('has_recent_activity'):
+            prompt += f"\n📊 Recent activity events: {activity_sample.get('total_recent_events', 0)}"
+        
+        prompt += f"""
+
+🎯 SUMMARY REQUEST:
+Create a personalized, ADHD-friendly daily summary that:
+
+1. **Celebrates Progress**: Acknowledge what they DID accomplish, however small
+2. **Recognizes Patterns**: Note any interesting productivity patterns or behaviors
+3. **Shows Understanding**: Demonstrate understanding of ADHD challenges and strengths
+4. **Offers Encouragement**: Be genuinely supportive and warm
+5. **Suggests Insights**: Gentle observations about their work style today
+
+IMPORTANT GUIDELINES:
+- Never shame or criticize
+- Celebrate effort over perfection
+- Acknowledge that some days are different than others
+- Be specific about what you observed
+- Keep it under 250 words
+- Use encouraging emojis appropriately
+- End with tomorrow-focused positivity
+
+Remember: This person chose to use a productivity tool today - that itself shows self-care and intention!"""
+
+        return prompt
+    
+    def _show_basic_summary(self, summary_data: Dict):
+        """Show basic summary if LLM is unavailable"""
+        session_stats = summary_data.get('session_stats', {})
+        interactions = summary_data.get('interactions', [])
+        
+        print("🤖 Session Summary:")
+        print(f"• Companion interactions: {session_stats.get('interventions', 0)}")
+        print(f"• Focus sessions detected: {session_stats.get('focus_sessions_detected', 0)}")
+        print(f"• Mode used: {session_stats.get('mode', 'coach')}")
+        
+        if interactions:
+            print(f"• Total interactions today: {len(interactions)}")
+        
+        print("\n💝 Remember:")
+        print("• You used a productivity tool today - that shows self-awareness!")
+        print("• Every moment of intention matters, regardless of the outcome")
+        print("• Tomorrow is a fresh start with new possibilities")
+        
+        if session_stats.get('focus_sessions_detected', 0) > 0:
+            print("• You had some focus time today - celebrate that! 🎉")
+    
+    def generate_weekly_insights(self):
+        """Generate weekly pattern insights using LLM"""
+        print("\n" + "=" * 60)
+        print("📊 Weekly Pattern Insights 📊")
+        print("=" * 60)
+        
+        try:
+            # Collect weekly data
+            print("📈 Analyzing your weekly patterns...")
+            weekly_data = self._collect_weekly_data()
+            
+            # Generate LLM insights
+            insights = self._generate_llm_weekly_insights(weekly_data)
+            
+            if insights:
+                print(insights)
+            else:
+                print("🤖 LLM unavailable for detailed insights.")
+                self._show_basic_weekly_summary(weekly_data)
+                
+        except Exception as e:
+            logger.error(f"Error generating weekly insights: {e}")
+            print("Had trouble analyzing weekly patterns, but every week teaches us something! 📚")
+        
+        print("=" * 60 + "\n")
+    
+    def _collect_weekly_data(self) -> Dict:
+        """Collect weekly data for pattern analysis"""
+        weekly_data = {
+            'daily_summaries': [],
+            'total_interactions': 0,
+            'total_focus_sessions': 0,
+            'common_patterns': [],
+            'week_info': {
+                'start_date': (datetime.now() - timedelta(days=7)).strftime('%B %d'),
+                'end_date': datetime.now().strftime('%B %d, %Y')
+            }
+        }
+        
+        # Load recent daily summaries
+        try:
+            if self.daily_summaries_file.exists():
+                with open(self.daily_summaries_file, 'r') as f:
+                    all_summaries = json.load(f)
+                
+                # Get last 7 days
+                recent_summaries = all_summaries[-7:] if len(all_summaries) >= 7 else all_summaries
+                weekly_data['daily_summaries'] = recent_summaries
+                
+                # Calculate totals
+                for summary in recent_summaries:
+                    session_data = summary.get('session_data', {}).get('session_stats', {})
+                    weekly_data['total_interactions'] += session_data.get('interventions', 0)
+                    weekly_data['total_focus_sessions'] += session_data.get('focus_sessions_detected', 0)
+                
+        except Exception as e:
+            logger.error(f"Error loading weekly data: {e}")
+        
+        return weekly_data
+    
+    def _generate_llm_weekly_insights(self, weekly_data: Dict) -> Optional[str]:
+        """Generate weekly insights using LLM"""
+        try:
+            prompt = self._create_weekly_insights_prompt(weekly_data)
+            
+            if self.verbose:
+                print(f"\n{'='*60}")
+                print(f"🧠 WEEKLY INSIGHTS LLM REQUEST")
+                print(f"{'='*60}")
+                print(f"Model: {self.model}")
+                print(f"Weekly Data: {json.dumps(weekly_data, indent=2)[:500]}...")
+                print(f"{'='*60}")
+            
+            system_prompt = """You are an ADHD productivity coach analyzing weekly patterns. 
+Identify trends, celebrate consistency, acknowledge challenges, and provide gentle insights about productivity patterns. 
+Be encouraging and focus on growth and self-understanding rather than judgment."""
+            
+            request_data = {
+                "model": self.model,
+                "prompt": prompt,
+                "system": system_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.7,
+                    "num_predict": 400  # Even longer for weekly insights
+                }
+            }
+            
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json=request_data,
+                timeout=45  # Longer timeout for complex analysis
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                llm_response = result.get("response", "").strip()
+                
+                if self.verbose:
+                    print(f"✅ LLM WEEKLY INSIGHTS: {llm_response}")
+                    print(f"{'='*60}\n")
+                
+                return llm_response
+            else:
+                logger.warning(f"Ollama returned status {response.status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error generating LLM weekly insights: {e}")
+            return None
+    
+    def _create_weekly_insights_prompt(self, weekly_data: Dict) -> str:
+        """Create prompt for weekly pattern analysis"""
+        week_info = weekly_data.get('week_info', {})
+        summaries = weekly_data.get('daily_summaries', [])
+        
+        prompt = f"""Analyze this user's ADHD productivity patterns over the past week and provide insightful observations.
+
+📅 WEEK PERIOD: {week_info.get('start_date', 'Last week')} - {week_info.get('end_date', 'Today')}
+
+📊 WEEKLY OVERVIEW:
+- Days with companion usage: {len(summaries)}
+- Total companion interactions: {weekly_data.get('total_interactions', 0)}
+- Total focus sessions detected: {weekly_data.get('total_focus_sessions', 0)}
+
+📋 DAILY BREAKDOWN:
+"""
+
+        # Add daily summary info
+        for i, summary in enumerate(summaries, 1):
+            date = summary.get('date', f'Day {i}')
+            session_data = summary.get('session_data', {}).get('session_stats', {})
+            
+            prompt += f"Day {i} ({date}):\n"
+            prompt += f"  - Mode: {session_data.get('mode', 'unknown')}\n"
+            prompt += f"  - Interventions: {session_data.get('interventions', 0)}\n"
+            prompt += f"  - Focus sessions: {session_data.get('focus_sessions_detected', 0)}\n"
+            prompt += f"  - Check interval: {session_data.get('check_interval', 60)}s\n"
+        
+        prompt += f"""
+
+🎯 ANALYSIS REQUEST:
+As an ADHD coach, analyze these patterns and provide insights about:
+
+1. **Consistency Patterns**: What does their usage pattern tell us about their routine?
+2. **Productivity Rhythms**: Any trends in focus sessions or engagement levels?
+3. **Growth Observations**: Signs of developing better productivity habits?
+4. **ADHD-Specific Insights**: How their usage patterns reflect common ADHD traits?
+5. **Gentle Recommendations**: Suggestions for optimizing their companion experience?
+
+IMPORTANT GUIDELINES:
+- Celebrate any consistency, even if imperfect
+- Acknowledge that ADHD productivity isn't linear
+- Focus on patterns and insights, not judgments
+- Offer specific, actionable suggestions
+- Keep it encouraging and hopeful
+- Use supportive language throughout
+- Keep response under 350 words
+- Use emojis to make it engaging
+
+Remember: Using a productivity tool consistently shows self-awareness and commitment to growth!"""
+
+        return prompt
+    
+    def _show_basic_weekly_summary(self, weekly_data: Dict):
+        """Show basic weekly summary if LLM unavailable"""
+        summaries = weekly_data.get('daily_summaries', [])
+        
+        print("📊 Basic Weekly Summary:")
+        print(f"• Days active: {len(summaries)}")
+        print(f"• Total interactions: {weekly_data.get('total_interactions', 0)}")
+        print(f"• Total focus sessions: {weekly_data.get('total_focus_sessions', 0)}")
+        
+        if len(summaries) >= 3:
+            print("• You've been consistently using your productivity companion!")
+        elif len(summaries) >= 1:
+            print("• You've started building a productivity habit!")
+        
+        print("\n💝 Weekly Wins:")
+        print("• You're tracking your productivity patterns")
+        print("• Every day of usage builds better self-awareness")
+        print("• Consistency matters more than perfection")
     
     def _save_daily_summary(self, daily_stats: Dict):
         """Save daily summary to file"""
@@ -553,6 +907,406 @@ class CompanionCube:
         with open(self.daily_summaries_file, 'w') as f:
             json.dump(summaries, f, indent=2)
 
+    def check_hourly_summary(self):
+        """Generate and save hourly activity summaries"""
+        now = datetime.now(timezone.utc)
+        time_since_last_hourly = (now - self.last_hourly_summary).total_seconds() / 3600
+        
+        if time_since_last_hourly >= 1.0:  # 1 hour
+            try:
+                # Get activity data for the last hour
+                multi_timeframe_data = self.aw_client.get_multi_timeframe_data()
+                hourly_data = multi_timeframe_data.get('1_hour', {})
+                
+                if hourly_data:
+                    # Process the data
+                    summaries = self.event_processor.filter_and_summarize_data({'1_hour': hourly_data})
+                    hour_summary = summaries.get('1_hour', {})
+                    
+                    # Generate LLM summary
+                    llm_summary = self._generate_llm_hourly_summary(hour_summary)
+                    
+                    # Save to hourly summaries file
+                    self._save_hourly_summary(hour_summary, llm_summary)
+                    
+                    if self.verbose:
+                        print(f"\n⏰ HOURLY SUMMARY GENERATED - {now.strftime('%H:%M')}")
+                        if llm_summary:
+                            print(f"📝 {llm_summary}")
+                
+                self.last_hourly_summary = now
+                
+            except Exception as e:
+                logger.error(f"Error generating hourly summary: {e}")
+
+    def check_minute_summary(self):
+        """Generate minute-by-minute summaries in verbose mode"""
+        now = datetime.now(timezone.utc)
+        time_since_last_minute = (now - self.last_minute_summary).total_seconds()
+        
+        if time_since_last_minute >= 60:  # 1 minute
+            try:
+                # Get recent activity (last 5 minutes)
+                multi_timeframe_data = self.aw_client.get_multi_timeframe_data()
+                recent_data = multi_timeframe_data.get('5_minutes', {})
+                
+                if recent_data:
+                    # Quick summary without full processing
+                    window_events = recent_data.get('window', [])
+                    web_events = recent_data.get('web', [])
+                    
+                    if window_events:
+                        latest_app = window_events[-1].get('data', {}).get('app', 'Unknown')
+                        latest_title = window_events[-1].get('data', {}).get('title', '')[:50]
+                        
+                        summary = f"🕐 Currently: {latest_app}"
+                        if latest_title:
+                            summary += f" - {latest_title}"
+                        
+                        if web_events:
+                            latest_url = web_events[-1].get('data', {}).get('url', '')
+                            if latest_url:
+                                domain = self.event_processor._extract_domain(latest_url)
+                                summary += f" @ {domain}"
+                        
+                        print(f"\n{summary}")
+                
+                self.last_minute_summary = now
+                
+            except Exception as e:
+                logger.debug(f"Error in minute summary: {e}")
+
+    def _generate_llm_hourly_summary(self, hour_data: Dict) -> Optional[str]:
+        """Generate LLM-powered hourly summary"""
+        try:
+            prompt = f"""Please create a brief, encouraging hourly summary for this ADHD user.
+
+📊 HOUR DATA:
+- App switches: {hour_data.get('app_switches', 0)}
+- Focus sessions: {len(hour_data.get('focus_sessions', []))}
+- Distractions detected: {len(hour_data.get('distractions', []))}
+- Primary apps: {', '.join(hour_data.get('top_apps', [])[:3])}
+- Behavior pattern: {hour_data.get('behavior_pattern', 'unknown')}
+
+Create a 1-2 sentence positive summary that:
+- Acknowledges what they accomplished this hour
+- Notes interesting patterns (if any)
+- Stays encouraging and supportive
+- Uses appropriate emojis
+- Keeps it under 100 words
+
+Focus on progress, not perfection!"""
+
+            system_prompt = "You are a supportive ADHD productivity coach providing brief hourly check-ins. Be warm, encouraging, and focus on small wins."
+            
+            request_data = {
+                "model": self.model,
+                "prompt": prompt,
+                "system": system_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.7,
+                    "num_predict": 100
+                }
+            }
+            
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json=request_data,
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("response", "").strip()
+            
+        except Exception as e:
+            logger.debug(f"Error generating hourly LLM summary: {e}")
+        
+        return None
+
+    def _save_hourly_summary(self, hour_data: Dict, llm_summary: Optional[str]):
+        """Save hourly summary to file"""
+        summary = {
+            "timestamp": datetime.now().isoformat(),
+            "hour": datetime.now().strftime('%H:00'),
+            "date": datetime.now().date().isoformat(),
+            "data": hour_data,
+            "llm_summary": llm_summary if llm_summary else "LLM unavailable",
+            "stats": {
+                "app_switches": hour_data.get('app_switches', 0),
+                "focus_sessions": len(hour_data.get('focus_sessions', [])),
+                "distractions": len(hour_data.get('distractions', [])),
+                "top_apps": hour_data.get('top_apps', [])[:3]
+            }
+        }
+        
+        # Load existing summaries
+        summaries = []
+        if self.hourly_summaries_file.exists():
+            try:
+                with open(self.hourly_summaries_file, 'r') as f:
+                    summaries = json.load(f)
+            except:
+                summaries = []
+        
+        # Add new summary
+        summaries.append(summary)
+        
+        # Keep last 7 days (168 hours)
+        if len(summaries) > 168:
+            summaries = summaries[-168:]
+        
+        # Save back
+        with open(self.hourly_summaries_file, 'w') as f:
+            json.dump(summaries, f, indent=2)
+
+    def generate_productivity_insights(self):
+        """Generate LLM-powered productivity pattern insights"""
+        try:
+            print("\n" + "=" * 60)
+            print("🧠 Productivity Pattern Analysis")
+            print("=" * 60)
+            
+            # Collect data from multiple sources
+            insights_data = self._collect_insights_data()
+            
+            # Generate LLM insights
+            llm_insights = self._generate_llm_productivity_insights(insights_data)
+            
+            if llm_insights:
+                print(llm_insights)
+            else:
+                print("🤖 LLM unavailable for detailed insights.")
+                self._show_basic_productivity_insights(insights_data)
+                
+        except Exception as e:
+            logger.error(f"Error generating productivity insights: {e}")
+            print("Had trouble analyzing patterns, but every session is valuable data! 📚")
+        
+        print("=" * 60 + "\n")
+
+    def _collect_insights_data(self) -> Dict:
+        """Collect comprehensive data for productivity insights"""
+        insights_data = {
+            'hourly_patterns': [],
+            'daily_trends': [],
+            'focus_patterns': {},
+            'distraction_patterns': {},
+            'intervention_effectiveness': {}
+        }
+        
+        try:
+            # Load hourly summaries for pattern analysis
+            if self.hourly_summaries_file.exists():
+                with open(self.hourly_summaries_file, 'r') as f:
+                    hourly_data = json.load(f)
+                
+                # Analyze hourly patterns
+                insights_data['hourly_patterns'] = self._analyze_hourly_patterns(hourly_data)
+                
+            # Load daily summaries for trend analysis
+            if self.daily_summaries_file.exists():
+                with open(self.daily_summaries_file, 'r') as f:
+                    daily_data = json.load(f)
+                
+                insights_data['daily_trends'] = self._analyze_daily_trends(daily_data)
+                
+            # Load interactions for effectiveness analysis
+            if self.interactions_file.exists():
+                with open(self.interactions_file, 'r') as f:
+                    interactions = json.load(f)
+                
+                insights_data['intervention_effectiveness'] = self._analyze_intervention_effectiveness(interactions)
+                
+        except Exception as e:
+            logger.error(f"Error collecting insights data: {e}")
+        
+        return insights_data
+
+    def _analyze_hourly_patterns(self, hourly_data: List[Dict]) -> Dict:
+        """Analyze patterns in hourly data"""
+        patterns = {
+            'most_productive_hours': [],
+            'common_focus_times': [],
+            'distraction_prone_hours': []
+        }
+        
+        try:
+            # Group by hour of day
+            hour_stats = {}
+            for entry in hourly_data[-168:]:  # Last week
+                hour = entry.get('hour', '00:00')
+                stats = entry.get('stats', {})
+                
+                if hour not in hour_stats:
+                    hour_stats[hour] = {'focus': 0, 'distractions': 0, 'count': 0}
+                
+                hour_stats[hour]['focus'] += stats.get('focus_sessions', 0)
+                hour_stats[hour]['distractions'] += stats.get('distractions', 0)
+                hour_stats[hour]['count'] += 1
+            
+            # Find patterns
+            if hour_stats:
+                # Most productive hours (highest focus ratio)
+                productive_hours = sorted(
+                    hour_stats.items(), 
+                    key=lambda x: x[1]['focus'] / max(x[1]['count'], 1) if x[1]['count'] > 0 else 0, 
+                    reverse=True
+                )[:3]
+                patterns['most_productive_hours'] = [hour for hour, stats in productive_hours if stats['focus'] > 0]
+                
+                # Distraction-prone hours
+                distraction_hours = sorted(
+                    hour_stats.items(),
+                    key=lambda x: x[1]['distractions'] / max(x[1]['count'], 1) if x[1]['count'] > 0 else 0,
+                    reverse=True
+                )[:2]
+                patterns['distraction_prone_hours'] = [hour for hour, stats in distraction_hours if stats['distractions'] > 0]
+                
+        except Exception as e:
+            logger.error(f"Error analyzing hourly patterns: {e}")
+        
+        return patterns
+
+    def _analyze_daily_trends(self, daily_data: List[Dict]) -> Dict:
+        """Analyze trends in daily data"""
+        trends = {
+            'consistency_score': 0,
+            'improvement_areas': [],
+            'recent_changes': []
+        }
+        
+        try:
+            if len(daily_data) >= 3:
+                recent_days = daily_data[-7:]  # Last week
+                
+                # Calculate consistency (regular usage)
+                active_days = sum(1 for day in recent_days if day.get('stats', {}).get('interventions', 0) > 0)
+                trends['consistency_score'] = (active_days / len(recent_days)) * 100
+                
+                # Identify improvement areas
+                avg_focus = sum(day.get('stats', {}).get('focus_sessions_detected', 0) for day in recent_days) / len(recent_days)
+                avg_distractions = sum(day.get('stats', {}).get('distractions_detected', 0) for day in recent_days) / len(recent_days)
+                
+                if avg_distractions > avg_focus:
+                    trends['improvement_areas'].append('Focus vs distraction balance')
+                if trends['consistency_score'] < 70:
+                    trends['improvement_areas'].append('Regular tool usage consistency')
+                    
+        except Exception as e:
+            logger.error(f"Error analyzing daily trends: {e}")
+        
+        return trends
+
+    def _analyze_intervention_effectiveness(self, interactions: List[Dict]) -> Dict:
+        """Analyze how effective interventions are"""
+        effectiveness = {
+            'total_interventions': len(interactions),
+            'state_breakdown': {},
+            'response_patterns': []
+        }
+        
+        try:
+            # Count interventions by state
+            state_counts = {}
+            for interaction in interactions[-50:]:  # Last 50 interactions
+                state = interaction.get('state', 'unknown')
+                state_counts[state] = state_counts.get(state, 0) + 1
+            
+            effectiveness['state_breakdown'] = state_counts
+            
+        except Exception as e:
+            logger.error(f"Error analyzing intervention effectiveness: {e}")
+        
+        return effectiveness
+
+    def _generate_llm_productivity_insights(self, insights_data: Dict) -> Optional[str]:
+        """Generate comprehensive productivity insights using LLM"""
+        try:
+            prompt = f"""Please analyze this ADHD user's productivity patterns and provide personalized insights.
+
+📊 PRODUCTIVITY PATTERN DATA:
+
+⏰ HOURLY PATTERNS:
+- Most productive hours: {', '.join(insights_data.get('hourly_patterns', {}).get('most_productive_hours', ['None identified']))}
+- Distraction-prone times: {', '.join(insights_data.get('hourly_patterns', {}).get('distraction_prone_hours', ['None identified']))}
+
+📈 DAILY TRENDS:
+- Consistency score: {insights_data.get('daily_trends', {}).get('consistency_score', 0):.1f}%
+- Improvement areas: {', '.join(insights_data.get('daily_trends', {}).get('improvement_areas', ['Great job overall!']))}
+
+🎯 INTERVENTION DATA:
+- Total interactions: {insights_data.get('intervention_effectiveness', {}).get('total_interventions', 0)}
+- State breakdown: {dict(list(insights_data.get('intervention_effectiveness', {}).get('state_breakdown', {}).items())[:3])}
+
+Please provide:
+1. **Pattern Recognition**: What interesting patterns do you notice?
+2. **ADHD-Specific Insights**: How do these patterns relate to ADHD traits?
+3. **Personalized Suggestions**: 2-3 specific, actionable recommendations
+4. **Encouragement**: Celebrate what's working well
+5. **Future Focus**: Gentle suggestions for optimization
+
+GUIDELINES:
+- Be supportive and understanding of ADHD challenges
+- Focus on patterns, not judgments
+- Offer specific, actionable suggestions
+- Celebrate small wins and progress
+- Keep tone warm and encouraging
+- Use emojis appropriately
+- Limit to 400 words
+
+Remember: Every person with ADHD has unique patterns - help them understand theirs!"""
+
+            system_prompt = "You are a specialized ADHD productivity coach analyzing behavioral patterns. Provide insights that are understanding, encouraging, and actionable for someone with ADHD."
+            
+            request_data = {
+                "model": self.model,
+                "prompt": prompt,
+                "system": system_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.8,
+                    "num_predict": 400
+                }
+            }
+            
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json=request_data,
+                timeout=45
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("response", "").strip()
+            
+        except Exception as e:
+            logger.debug(f"Error generating productivity insights: {e}")
+        
+        return None
+
+    def _show_basic_productivity_insights(self, insights_data: Dict):
+        """Show basic insights if LLM unavailable"""
+        hourly = insights_data.get('hourly_patterns', {})
+        daily = insights_data.get('daily_trends', {})
+        
+        print("📊 Basic Pattern Analysis:")
+        
+        if hourly.get('most_productive_hours'):
+            print(f"• Your most productive hours: {', '.join(hourly['most_productive_hours'])}")
+        
+        if daily.get('consistency_score', 0) > 0:
+            print(f"• Consistency score: {daily['consistency_score']:.1f}%")
+        
+        if daily.get('improvement_areas'):
+            print(f"• Growth opportunities: {', '.join(daily['improvement_areas'])}")
+        
+        print("\n💡 Remember:")
+        print("• Every pattern tells a story about your unique brain")
+        print("• Small consistent changes lead to big improvements")
+        print("• You're building valuable self-awareness!")
+
 
 def main():
     parser = argparse.ArgumentParser(description="Companion Cube - ADHD Productivity Assistant")
@@ -560,7 +1314,7 @@ def main():
                        default="coach", help="Companion mode")
     parser.add_argument("--interval", type=int, default=60, 
                        help="Check interval in seconds")
-    parser.add_argument("--model", type=str, default="cas/mistral-7b-instruct-v0.3",
+    parser.add_argument("--model", type=str, default="mistral",
                        help="Ollama model to use")
     parser.add_argument("--test", action="store_true", 
                        help="Run a single check for testing")
@@ -570,6 +1324,10 @@ def main():
                        help="Generate daily summary and exit")
     parser.add_argument("--verbose", action="store_true",
                        help="Enable verbose mode with detailed LLM prompts and processing info")
+    parser.add_argument("--weekly-insights", action="store_true",
+                       help="Generate weekly pattern insights using LLM")
+    parser.add_argument("--productivity-insights", action="store_true",
+                       help="Generate comprehensive productivity pattern analysis using LLM")
     
     args = parser.parse_args()
     
@@ -585,6 +1343,14 @@ def main():
     
     if args.daily_summary:
         cube.generate_end_of_day_summary()
+        return
+    
+    if args.weekly_insights:
+        cube.generate_weekly_insights()
+        return
+    
+    if args.productivity_insights:
+        cube.generate_productivity_insights()
         return
     
     if args.test:

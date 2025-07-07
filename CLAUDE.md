@@ -8,11 +8,21 @@ Companion Cube is a Python-based ADHD productivity assistant that monitors user 
 
 ## Commands
 
-### Running the Application
+### Development Setup
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
+# Ensure ActivityWatch is running (required dependency)
+# Check at: http://localhost:5600
+
+# Optional: Set up Ollama for LLM features
+ollama serve
+ollama pull cas/mistral-7b-instruct-v0.3
+```
+
+### Running the Application
+```bash
 # Basic run (coach mode, 60s intervals)
 python companion_main.py
 
@@ -25,17 +35,42 @@ python companion_main.py --test-connections
 # Single activity check for testing
 python companion_main.py --test
 
-# Generate daily summary
+# Generate LLM-powered daily summary
 python companion_main.py --daily-summary
 
-# Specify LLM model
-python companion_main.py --model deepseek-r1-distill-qwen
+# Generate weekly pattern insights using LLM
+python companion_main.py --weekly-insights
+
+# Generate comprehensive productivity pattern analysis
+python companion_main.py --productivity-insights
+
+# Specify LLM model (if you have it installed)
+python companion_main.py --model mistral
 
 # Enable verbose mode with detailed LLM prompts and processing info
+# Also shows 1-minute activity summaries in real-time
 python companion_main.py --verbose
 
-# Combine options
-python companion_main.py --verbose --test --model cas/mistral-7b-instruct-v0.3
+# Combine options for verbose daily summary
+python companion_main.py --verbose --daily-summary --model mistral
+
+# Weekly insights with verbose LLM details
+python companion_main.py --verbose --weekly-insights
+
+# Productivity analysis with verbose output
+python companion_main.py --verbose --productivity-insights
+```
+
+### Testing and Debugging
+```bash
+# Test all connections (ActivityWatch + Ollama)
+python companion_main.py --test-connections
+
+# Single activity snapshot for debugging
+python companion_main.py --test
+
+# View detailed logging and LLM processing
+python companion_main.py --verbose
 ```
 
 ### Available Modes
@@ -65,6 +100,13 @@ The system consists of three main components that work together:
    - Integrates with Ollama API on `localhost:11434`
    - Manages intervention cooldowns (flow: 45min, working: 15min, nudge: 5min)
    - Persists data in `data/` directory
+   - **LLM-Powered Features**: 
+     - Daily summaries with enhanced context and timing
+     - Hourly activity summaries (auto-generated every hour)
+     - Weekly pattern insights and trends
+     - Comprehensive productivity pattern analysis
+     - Real-time minute summaries in verbose mode
+     - Contextual ADHD-supportive interventions
 
 ## Key Design Principles
 
@@ -92,10 +134,36 @@ The client handles timezone format preferences and automatically retries. If per
 2. State + context → ADHD-specific prompt → Ollama LLM → supportive response
 3. All interactions logged to `data/interactions.json`
 4. Daily summaries saved to `data/daily_summaries.json`
+5. Hourly summaries auto-generated and saved to `data/hourly_summaries.json`
+6. Pattern analysis uses historical data for productivity insights
 
 ## Critical Implementation Details
 
 - **Bucket Selection**: Uses `last_updated` timestamp to find active buckets (not hostname-based)
-- **Time Handling**: Subtracts 2 seconds from "now" to avoid querying future timestamps
+- **Time Handling**: Subtracts 2 seconds from "now" to avoid querying future timestamps  
 - **State Detection**: Based on app switches, focus duration, and distraction ratio
 - **Prompt Generation**: State-specific, keeping responses under 50 words for ADHD-friendly brevity
+- **Data Storage**: JSON files in `data/` directory (interactions.json, daily_summaries.json, hourly_summaries.json)
+- **Error Handling**: Graceful fallbacks when ActivityWatch or Ollama are unavailable
+- **Signal Handling**: Proper cleanup on Ctrl+C with signal handlers
+- **Intervention Cooldowns**: Prevents over-notification (flow: 45min, working: 15min, nudge: 5min)
+- **LLM Integration**: Multiple specialized prompts for different analysis types
+- **Verbose Mode**: Real-time minute-by-minute activity tracking and hourly LLM summaries
+- **Pattern Analysis**: Cross-references hourly, daily, and interaction data for insights
+
+## Codebase Structure
+
+- **companion_main.py** (955 lines) - Main orchestrator with CompanionCube class
+  - Handles CLI arguments, signal handling, intervention logic
+  - Manages Ollama API integration and LLM prompt generation  
+  - Implements daily/weekly summary generation with fallbacks
+  
+- **activitywatch_client.py** (334 lines) - ActivityWatch API client
+  - Robust error handling with retries and exponential backoff
+  - Multi-host bucket selection using timestamps
+  - Timezone-aware date handling for query consistency
+  
+- **event_processor.py** (477 lines) - Activity analysis and pattern detection
+  - App/website categorization (productivity vs distraction)
+  - ADHD-specific pattern detection (rapid switching, hyperfocus)
+  - State inference with context-aware reasoning
