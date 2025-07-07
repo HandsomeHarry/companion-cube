@@ -322,8 +322,9 @@ class CompanionCube:
 {"- Browser detected - checking web activity below" if current_app and any(browser in current_app.lower() for browser in ['chrome', 'firefox', 'brave', 'edge', 'safari']) else ""}
 
 🌐 WEB ACTIVITY CONTEXT:
-- Current website: {current_website or 'Not browsing'}
+- Current website: {current_website or 'N/A (user not in browser)'}
 - Page title: {current_web_title[:100] + '...' if current_web_title and len(current_web_title) > 100 else current_web_title or 'N/A'}
+- ⚠️ IMPORTANT: Web data is ONLY relevant if current app is a browser!
 
 ⏱️ TIMEFRAME STATISTICS:
 Recent 5 minutes:
@@ -344,23 +345,36 @@ Last 30 minutes:
 
 📅 COMPREHENSIVE ACTIVITY TIMELINE:"""
 
-        # Add timeline details - SHOW ALL EVENTS with timeframe context
+        # Add timeline details - PRIORITIZED for LLM context efficiency
         if timeline:
-            prompt += f"\nChronological activity sequence ({len(timeline)} total events across all timeframes):"
-            for i, event in enumerate(timeline):
+            prompt += f"\nPrioritized activity sequence ({len(timeline)} events - recent 5min data first, then historical context):"
+            current_events = [e for e in timeline if e.get('priority') == 'current']
+            context_events = [e for e in timeline if e.get('priority') == 'context']
+            
+            prompt += f"\n\n🔥 CURRENT ACTIVITY (last 5 minutes - max 30 events):"
+            for i, event in enumerate(current_events):
                 duration = event.get('duration_minutes', 0)
                 timeframe = event.get('timeframe_source', 'unknown')
                 
                 if event['type'] == 'app':
-                    prompt += f"\n  {i+1}. [{duration:.1f}min] [{timeframe}] {event['name']}"
+                    prompt += f"\n  {i+1}. [{duration:.1f}min] APP: {event['name']}"
                     if event.get('title'):
-                        prompt += f" - {event['title'][:80]}"
+                        prompt += f" - {event['title'][:60]}"
                 else:  # web
-                    prompt += f"\n  {i+1}. [{duration:.1f}min] [{timeframe}] Web: {event['name']}"
+                    prompt += f"\n  {i+1}. [{duration:.1f}min] WEB: {event['name']}"
                     if event.get('title'):
-                        prompt += f" - {event['title'][:80]}"
-                    if event.get('url'):
-                        prompt += f" (URL: {event['url'][:100]})"
+                        prompt += f" - {event['title'][:60]}"
+            
+            if context_events:
+                prompt += f"\n\n📊 HISTORICAL CONTEXT (significant activities from longer timeframes):"
+                for i, event in enumerate(context_events[:20]):  # Limit context display
+                    duration = event.get('duration_minutes', 0)
+                    timeframe = event.get('timeframe_source', 'unknown')
+                    
+                    if event['type'] == 'app':
+                        prompt += f"\n  {i+1}. [{duration:.1f}min] [{timeframe}] {event['name']}"
+                    else:  # web
+                        prompt += f"\n  {i+1}. [{duration:.1f}min] [{timeframe}] Web: {event['name']}"
         
         # Add context switches - SHOW ALL SWITCHES
         if context_switches:
@@ -380,38 +394,45 @@ Consider these ADHD-relevant factors:
 4. **Productivity Indicators**: Tools like IDEs, documents, vs entertainment/social media
 5. **Time Investment**: Duration spent on different types of activities
 
-ANALYSIS DECISION TREE:
+🚦 CRITICAL 3-BUCKET ANALYSIS HIERARCHY:
 
-1️⃣ **AFK CHECK**: If user is currently AFK → state = "afk"
+1️⃣ **AFK BUCKET**: 
+   → If currently AFK = true → state = "afk" (ignore everything else)
 
-2️⃣ **WINDOW APP ANALYSIS**: 
-   - Code editors (vscode, vim, etc.) → likely "flow" or "working"
-   - Communication apps (weixin.exe, slack, discord) → consider context
-   - Browsers (brave.exe, chrome.exe) → check WEB BUCKET below
-   - Entertainment apps (games, media players) → likely "needs_nudge"
+2️⃣ **WINDOW BUCKET** (check current app):
+   → If current app is NOT a browser:
+     - Code editor (vscode, vim, etc.) → "flow" or "working" 
+     - Communication (weixin.exe, slack) → "working"
+     - Entertainment/games → "needs_nudge"
+     - STOP HERE - ignore web data completely
 
-3️⃣ **WEB BUCKET ANALYSIS** (for browsers):
-   - Educational content (educational YouTube, documentation, tutorials) → "working" or "flow"
-   - Social media (facebook, twitter, instagram) → "needs_nudge"
-   - Work sites (github, company domains, productivity tools) → "working" 
-   - Entertainment (YouTube entertainment, gaming sites) → "needs_nudge"
-   - Research (wikipedia, technical articles) → "working"
+3️⃣ **WEB BUCKET** (ONLY if current app IS a browser):
+   → Educational YouTube, documentation → "working"/"flow"
+   → GitHub, work sites → "working"/"flow" 
+   → Social media, entertainment → "needs_nudge"
+   → Multiple tabs/rapid switching → "needs_nudge"
 
-EXAMPLE ANALYSIS PATTERNS:
+⚠️ CRITICAL: If user is NOT currently in a browser app, web events are historical context only - do NOT use them for current state analysis!
+
+EXAMPLE CORRECT ANALYSIS:
 
 🟢 FLOW STATE: 
-- App: vscode, Page: documentation site, Duration: 20+ min, Low switches
-- App: weixin.exe + code editor, working while communicating with team
+- Current app: "code" (VSCode) → Focus on app only, ignore web history → "flow"
+- Current app: "brave.exe" + Site: "docs.python.org" → Educational browsing → "flow"
 
 🟡 WORKING: 
-- App: brave.exe, Site: youtube.com, Title: "Python Tutorial - Advanced Functions"
-- App: weixin.exe + multiple work apps, coordinating work tasks
+- Current app: "weixin.exe" → Communication app → "working" (ignore web data)
+- Current app: "brave.exe" + Site: "youtube.com" + Title: "Python Tutorial" → "working"
 
 🟠 NEEDS_NUDGE: 
-- App: brave.exe, Site: youtube.com, Title: "Funny Cat Videos Compilation"
-- High context switching between entertainment sites
+- Current app: "brave.exe" + Site: "youtube.com" + Title: "Cat Videos" → "needs_nudge"
+- Current app: "game.exe" → Entertainment app → "needs_nudge" (ignore web data)
 
-🔴 AFK: Currently AFK status = true
+🔴 AFK: Currently AFK = true → "afk" (ignore everything else)
+
+❌ WRONG ANALYSIS EXAMPLES:
+- Current app: "vscode" + User previously visited YouTube → DON'T use web data for state!
+- Current app: "terminal" + Web history shows GitHub → DON'T assume browsing GitHub now!
 
 REQUIRED OUTPUT FORMAT (JSON):
 {{

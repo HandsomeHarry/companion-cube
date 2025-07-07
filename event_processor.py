@@ -483,11 +483,14 @@ class EventProcessor:
                 seen_web_events.add(event_key)
                 unique_web_events.append(event)
         
-        # Create comprehensive timeline (limit to fit in 8K context window)
-        raw_data['activity_timeline'] = self._create_activity_timeline(
-            unique_window_events[:100],  # Most recent 100 window events 
-            unique_web_events[:50]       # Most recent 50 web events
+        # Create comprehensive timeline for LLM (limit per-timeframe to manage context)
+        # For 5-minute analysis, limit to 30 total activities, but provide full context for longer timeframes
+        timeline_events = self._create_prioritized_timeline(
+            unique_window_events, 
+            unique_web_events,
+            raw_data['timeframes']
         )
+        raw_data['activity_timeline'] = timeline_events
         
         # Extract context switches with timing from recent data
         recent_data = raw_data['timeframes'].get('5_minutes', {})
@@ -500,7 +503,7 @@ class EventProcessor:
         return raw_data
     
     def _create_activity_timeline(self, window_events: List[dict], web_events: List[dict]) -> List[dict]:
-        """Create a chronological timeline of all activities"""
+        """Create a chronological timeline of all activities (legacy method)"""
         timeline = []
         
         # Add window events
@@ -527,6 +530,91 @@ class EventProcessor:
         # Sort by timestamp
         timeline.sort(key=lambda x: x['timestamp'])
         return timeline
+    
+    def _create_prioritized_timeline(self, window_events: List[dict], web_events: List[dict], timeframes: Dict) -> List[dict]:
+        """Create a prioritized timeline with intelligent limits for LLM context"""
+        timeline = []
+        
+        # Priority 1: All events from 5-minute timeframe (but limit to 30 total)
+        five_min_events = []
+        five_min_data = timeframes.get('5_minutes', {})
+        
+        # Add recent window events with priority
+        for event in five_min_data.get('window_events', []):
+            five_min_events.append({
+                'type': 'app',
+                'name': event['app'],
+                'title': event.get('title', ''),
+                'duration_minutes': event['duration_minutes'],
+                'timestamp': event['timestamp'],
+                'timeframe_source': '5_minutes',
+                'priority': 'current'
+            })
+        
+        # Add recent web events with priority  
+        for event in five_min_data.get('web_events', []):
+            five_min_events.append({
+                'type': 'web',
+                'name': event['domain'],
+                'title': event.get('title', ''),
+                'url': event.get('url', ''),
+                'duration_minutes': event['duration_minutes'],
+                'timestamp': event['timestamp'],
+                'timeframe_source': '5_minutes',
+                'priority': 'current'
+            })
+        
+        # Sort 5-minute events by recency and limit to 30
+        five_min_events.sort(key=lambda x: x['timestamp'], reverse=True)
+        timeline.extend(five_min_events[:30])  # Limit 5-minute data to 30 activities
+        
+        # Priority 2: Representative events from longer timeframes for context
+        # Add key events from 10-min, 30-min for trend analysis
+        for timeframe_name in ['10_minutes', '30_minutes', '1_hour']:
+            timeframe_data = timeframes.get(timeframe_name, {})
+            
+            # Get most significant events (longest duration or most recent)
+            window_events_tf = timeframe_data.get('window_events', [])
+            web_events_tf = timeframe_data.get('web_events', [])
+            
+            # Add top 5 longest window events from each timeframe
+            if window_events_tf:
+                significant_windows = sorted(window_events_tf, key=lambda x: x['duration_minutes'], reverse=True)[:5]
+                for event in significant_windows:
+                    # Avoid duplicates from 5-minute timeframe
+                    if not any(e['timestamp'] == event['timestamp'] and e['type'] == 'app' for e in timeline):
+                        timeline.append({
+                            'type': 'app',
+                            'name': event['app'],
+                            'title': event.get('title', ''),
+                            'duration_minutes': event['duration_minutes'],
+                            'timestamp': event['timestamp'],
+                            'timeframe_source': timeframe_name,
+                            'priority': 'context'
+                        })
+            
+            # Add top 3 web events from each timeframe for context
+            if web_events_tf:
+                significant_web = sorted(web_events_tf, key=lambda x: x['duration_minutes'], reverse=True)[:3]
+                for event in significant_web:
+                    # Avoid duplicates from 5-minute timeframe
+                    if not any(e['timestamp'] == event['timestamp'] and e['type'] == 'web' for e in timeline):
+                        timeline.append({
+                            'type': 'web',
+                            'name': event['domain'],
+                            'title': event.get('title', ''),
+                            'url': event.get('url', ''),
+                            'duration_minutes': event['duration_minutes'],
+                            'timestamp': event['timestamp'],
+                            'timeframe_source': timeframe_name,
+                            'priority': 'context'
+                        })
+        
+        # Sort final timeline by priority (current first) then by timestamp
+        timeline.sort(key=lambda x: (x['priority'] != 'current', x['timestamp']), reverse=True)
+        
+        # Final limit to ensure we don't exceed context window (150 total events max)
+        return timeline[:150]
     
     def _extract_context_switches(self, window_events: List[dict]) -> List[dict]:
         """Extract context switch information with timing"""

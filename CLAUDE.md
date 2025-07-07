@@ -94,6 +94,7 @@ The system consists of three main components that work together:
    - Provides detailed activity timelines, context switches, and usage statistics
    - Creates chronological activity sequences and app transition data
    - **NEW**: `prepare_raw_data_for_llm()` method provides comprehensive raw data instead of pre-categorized summaries
+   - **NEW**: `_create_prioritized_timeline()` intelligently limits 5-minute data to 30 activities while preserving full context
 
 3. **CompanionCube** (`companion_main.py`)
    - Main orchestrator with configurable intervention logic
@@ -147,10 +148,14 @@ The client handles timezone format preferences and automatically retries. If per
 
 ## Critical Implementation Details
 
+- **3-Bucket Analysis Hierarchy**: AFK → Window → Web (web data only relevant when browser is active)
+- **LLM Context Management**: 30 recent activities for 5-minute analysis, full 8K context for historical patterns  
+- **Activity Timeline Prioritization**: Current events (5-min) prioritized over historical context in LLM prompts
+- **Browser State Logic**: Web events ignored for current state unless user is actively in a browser app
 - **Bucket Selection**: Uses `last_updated` timestamp to find active buckets (not hostname-based)
 - **Time Handling**: Subtracts 2 seconds from "now" to avoid querying future timestamps  
-- **State Detection**: Based on app switches, focus duration, and distraction ratio
-- **Prompt Generation**: State-specific, keeping responses under 50 words for ADHD-friendly brevity
+- **State Detection**: LLM-powered analysis with current vs historical context separation
+- **Prompt Engineering**: Clear hierarchy prevents "always on webpage" analysis errors
 - **NEW Organized Data Storage**: Minimal files in `data/` directory (log.json, daily_summary.json only)
 - **5-Minute Logging**: LLM state analysis logged every 5 minutes with comprehensive context
 - **30-Minute Summaries**: Automatic practical summaries every :00 and :30 with activity breakdown
