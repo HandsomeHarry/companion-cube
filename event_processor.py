@@ -443,16 +443,59 @@ class EventProcessor:
             
             raw_data['timeframes'][timeframe] = timeframe_data
         
-        # Generate activity timeline for the most recent period (5 minutes)
+        # Generate comprehensive activity timeline for ALL timeframes (using 8K context)
+        # Combine data from multiple timeframes to give LLM maximum context
+        all_window_events = []
+        all_web_events = []
+        
+        # Prioritize recent data but include historical context
+        timeframe_priority = ['5_minutes', '10_minutes', '30_minutes', '1_hour', 'today']
+        
+        for timeframe in timeframe_priority:
+            timeframe_data = raw_data['timeframes'].get(timeframe, {})
+            if timeframe_data:
+                window_events = timeframe_data.get('window_events', [])
+                web_events = timeframe_data.get('web_events', [])
+                
+                # Add timeframe context to events
+                for event in window_events:
+                    event['timeframe_source'] = timeframe
+                for event in web_events:
+                    event['timeframe_source'] = timeframe
+                
+                all_window_events.extend(window_events)
+                all_web_events.extend(web_events)
+        
+        # Remove duplicates (same timestamp) and sort by recency
+        seen_events = set()
+        unique_window_events = []
+        for event in sorted(all_window_events, key=lambda x: x['timestamp'], reverse=True):
+            event_key = (event['timestamp'], event['app'])
+            if event_key not in seen_events:
+                seen_events.add(event_key)
+                unique_window_events.append(event)
+        
+        seen_web_events = set()
+        unique_web_events = []
+        for event in sorted(all_web_events, key=lambda x: x['timestamp'], reverse=True):
+            event_key = (event['timestamp'], event.get('url', ''))
+            if event_key not in seen_web_events:
+                seen_web_events.add(event_key)
+                unique_web_events.append(event)
+        
+        # Create comprehensive timeline (limit to fit in 8K context window)
+        raw_data['activity_timeline'] = self._create_activity_timeline(
+            unique_window_events[:100],  # Most recent 100 window events 
+            unique_web_events[:50]       # Most recent 50 web events
+        )
+        
+        # Extract context switches with timing from recent data
         recent_data = raw_data['timeframes'].get('5_minutes', {})
         if recent_data:
-            raw_data['activity_timeline'] = self._create_activity_timeline(
-                recent_data.get('window_events', []), 
-                recent_data.get('web_events', [])
-            )
-            
-            # Extract context switches with timing
             raw_data['context_switches'] = self._extract_context_switches(recent_data.get('window_events', []))
+        
+        # Add pattern analysis across timeframes
+        raw_data['patterns'] = self._analyze_cross_timeframe_patterns(raw_data['timeframes'])
         
         return raw_data
     
@@ -502,6 +545,62 @@ class EventProcessor:
             last_app = app
         
         return switches
+
+    def _analyze_cross_timeframe_patterns(self, timeframes: Dict) -> Dict:
+        """Analyze patterns across different timeframes for richer LLM context"""
+        patterns = {
+            'productivity_trend': 'unknown',
+            'focus_pattern': 'unknown',
+            'distraction_evolution': 'unknown',
+            'peak_activity_periods': [],
+            'dominant_apps_by_timeframe': {},
+            'web_browsing_behavior': 'unknown'
+        }
+        
+        try:
+            # Analyze productivity trend across timeframes
+            timeframe_order = ['5_minutes', '10_minutes', '30_minutes', '1_hour']
+            switch_counts = []
+            active_times = []
+            
+            for tf in timeframe_order:
+                if tf in timeframes:
+                    stats = timeframes[tf].get('statistics', {})
+                    switch_counts.append(stats.get('context_switches', 0))
+                    active_times.append(stats.get('total_active_minutes', 0))
+            
+            # Determine productivity trend
+            if len(switch_counts) >= 2:
+                recent_switches = sum(switch_counts[:2])  # 5min + 10min
+                older_switches = sum(switch_counts[2:])   # 30min + 1hr
+                
+                if recent_switches > older_switches * 1.5:
+                    patterns['productivity_trend'] = 'declining'
+                elif recent_switches < older_switches * 0.5:
+                    patterns['productivity_trend'] = 'improving'
+                else:
+                    patterns['productivity_trend'] = 'stable'
+            
+            # Analyze dominant apps by timeframe
+            for tf_name, tf_data in timeframes.items():
+                apps = tf_data.get('statistics', {}).get('unique_apps', [])
+                patterns['dominant_apps_by_timeframe'][tf_name] = apps[:3]  # Top 3 apps
+            
+            # Analyze web browsing behavior
+            web_domains_5min = timeframes.get('5_minutes', {}).get('statistics', {}).get('unique_domains', [])
+            web_domains_1hr = timeframes.get('1_hour', {}).get('statistics', {}).get('unique_domains', [])
+            
+            if len(web_domains_5min) > len(web_domains_1hr) * 0.8:
+                patterns['web_browsing_behavior'] = 'intensive_recent_browsing'
+            elif len(web_domains_5min) == 0 and len(web_domains_1hr) > 0:
+                patterns['web_browsing_behavior'] = 'reduced_browsing'
+            else:
+                patterns['web_browsing_behavior'] = 'normal_browsing'
+                
+        except Exception as e:
+            logger.debug(f"Error analyzing cross-timeframe patterns: {e}")
+        
+        return patterns
 
     def generate_llm_context(self, summaries: Dict[str, Dict], comparison: Dict) -> str:
         """Generate a concise context string for the LLM (legacy method for backward compatibility)"""

@@ -230,7 +230,10 @@ class CompanionCube:
                 "stream": False,
                 "options": {
                     "temperature": 0.3,  # Lower temperature for more consistent analysis
-                    "num_predict": 400
+                    "num_predict": 400,
+                    "num_ctx": 8192,  # Use full 8K context window for Mistral 7B
+                    "top_k": 40,
+                    "top_p": 0.9
                 }
             }
             
@@ -337,26 +340,33 @@ Last 30 minutes:
 - Unique apps: {len(medium_stats.get('unique_apps', []))}
 - Unique domains: {len(medium_stats.get('unique_domains', []))}
 
-📅 ACTIVITY TIMELINE (Most Recent):"""
+📊 CROSS-TIMEFRAME PATTERNS:
+{self._format_patterns_for_prompt(raw_data.get('patterns', {}))}
 
-        # Add timeline details
+📅 COMPREHENSIVE ACTIVITY TIMELINE:"""
+
+        # Add timeline details - SHOW ALL EVENTS with timeframe context
         if timeline:
-            prompt += "\nChronological activity sequence:"
-            for i, event in enumerate(timeline[-10:]):  # Last 10 events
+            prompt += f"\nChronological activity sequence ({len(timeline)} total events across all timeframes):"
+            for i, event in enumerate(timeline):
                 duration = event.get('duration_minutes', 0)
+                timeframe = event.get('timeframe_source', 'unknown')
+                
                 if event['type'] == 'app':
-                    prompt += f"\n  {i+1}. [{duration:.1f}min] {event['name']}"
+                    prompt += f"\n  {i+1}. [{duration:.1f}min] [{timeframe}] {event['name']}"
                     if event.get('title'):
-                        prompt += f" - {event['title'][:60]}"
+                        prompt += f" - {event['title'][:80]}"
                 else:  # web
-                    prompt += f"\n  {i+1}. [{duration:.1f}min] Web: {event['name']}"
+                    prompt += f"\n  {i+1}. [{duration:.1f}min] [{timeframe}] Web: {event['name']}"
                     if event.get('title'):
-                        prompt += f" - {event['title'][:60]}"
+                        prompt += f" - {event['title'][:80]}"
+                    if event.get('url'):
+                        prompt += f" (URL: {event['url'][:100]})"
         
-        # Add context switches
+        # Add context switches - SHOW ALL SWITCHES
         if context_switches:
             prompt += f"\n\n🔄 CONTEXT SWITCHES ({len(context_switches)} total):"
-            for i, switch in enumerate(context_switches[-5:]):  # Last 5 switches
+            for i, switch in enumerate(context_switches):  # ALL switches
                 prompt += f"\n  {i+1}. {switch['from_app']} → {switch['to_app']}"
         
         prompt += f"""
@@ -417,6 +427,25 @@ REQUIRED OUTPUT FORMAT (JSON):
 Analyze the data and respond with ONLY the JSON object above."""
         
         return prompt
+    
+    def _format_patterns_for_prompt(self, patterns: Dict) -> str:
+        """Format cross-timeframe patterns for LLM prompt"""
+        if not patterns:
+            return "No pattern data available"
+        
+        formatted = []
+        formatted.append(f"- Productivity trend: {patterns.get('productivity_trend', 'unknown')}")
+        formatted.append(f"- Web browsing behavior: {patterns.get('web_browsing_behavior', 'unknown')}")
+        
+        # Add dominant apps by timeframe
+        dom_apps = patterns.get('dominant_apps_by_timeframe', {})
+        if dom_apps:
+            formatted.append("- Dominant apps by timeframe:")
+            for timeframe, apps in dom_apps.items():
+                if apps:
+                    formatted.append(f"  • {timeframe}: {', '.join(apps[:3])}")
+        
+        return '\n'.join(formatted)
     
     def _parse_llm_state_analysis(self, llm_response: str) -> Optional[Dict]:
         """Parse the structured LLM response for state analysis"""
@@ -867,7 +896,10 @@ Keep the tone warm, personal, and supportive. Focus on progress and patterns, no
                 "stream": False,
                 "options": {
                     "temperature": 0.8,
-                    "num_predict": 300  # Longer response for daily summary
+                    "num_predict": 300,  # Longer response for daily summary
+                    "num_ctx": 8192,     # Use full 8K context window
+                    "top_k": 40,
+                    "top_p": 0.9
                 }
             }
             
@@ -1290,7 +1322,10 @@ Focus on progress, not perfection!"""
                 "stream": False,
                 "options": {
                     "temperature": 0.7,
-                    "num_predict": 100
+                    "num_predict": 100,
+                    "num_ctx": 8192,  # Use full 8K context window
+                    "top_k": 40,
+                    "top_p": 0.9
                 }
             }
             
@@ -1551,7 +1586,10 @@ Remember: Every person with ADHD has unique patterns - help them understand thei
                 "stream": False,
                 "options": {
                     "temperature": 0.8,
-                    "num_predict": 400
+                    "num_predict": 400,
+                    "num_ctx": 8192,  # Use full 8K context window
+                    "top_k": 40,
+                    "top_p": 0.9
                 }
             }
             

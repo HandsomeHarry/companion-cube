@@ -195,21 +195,26 @@ class ActivityWatchClient:
         end_time = now - timedelta(seconds=2)
         start_time = end_time - timedelta(hours=hours_back)
         
-        # Try different possible web bucket names
-        possible_buckets = [
-            f"aw-watcher-web-chrome_{self.hostname}",
-            f"aw-watcher-web-firefox_{self.hostname}",
-            f"aw-watcher-web-edge_{self.hostname}",
-            f"aw-watcher-web_{self.hostname}"
-        ]
-        
         buckets = self.get_buckets()
         web_events = []
         
-        for bucket_name in possible_buckets:
-            if bucket_name in buckets:
-                events = self.get_events(bucket_name, start_time, end_time)
-                web_events.extend(events)
+        # Find all web buckets dynamically (supports any browser)
+        web_buckets = []
+        for bucket_name, bucket_info in buckets.items():
+            if bucket_name.startswith('aw-watcher-web'):
+                last_updated = bucket_info.get('last_updated')
+                web_buckets.append((bucket_name, last_updated))
+        
+        if web_buckets:
+            # Sort by last_updated (most recent first) and use the most active bucket
+            web_buckets.sort(key=lambda x: x[1] if x[1] else '', reverse=True)
+            selected_bucket = web_buckets[0][0]
+            logger.info(f"Using web bucket: {selected_bucket}")
+            
+            events = self.get_events(selected_bucket, start_time, end_time)
+            web_events.extend(events)
+        else:
+            logger.warning("No web bucket found")
         
         # Sort events by timestamp
         web_events.sort(key=lambda x: x['timestamp'])
