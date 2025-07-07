@@ -12,23 +12,35 @@ import argparse
 from activitywatch_client import ActivityWatchClient
 from event_processor import EventProcessor
 
+# Custom logging formatter with short timestamp
+class ShortTimestampFormatter(logging.Formatter):
+    def formatTime(self, record, datefmt=None):
+        from datetime import datetime
+        dt = datetime.fromtimestamp(record.created)
+        return dt.strftime('%m-%d %H:%M:%S.%f')[:-5]  # Remove last 5 digits of microseconds
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+# Apply custom formatter to all handlers
+for handler in logging.getLogger().handlers:
+    handler.setFormatter(ShortTimestampFormatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
 logger = logging.getLogger(__name__)
 
 class CompanionCube:
-    def __init__(self, check_interval: int = 60, mode: str = "coach"):
+    def __init__(self, check_interval: int = 60, mode: str = "coach", verbose: bool = False):
         self.check_interval = check_interval
         self.mode = mode
+        self.verbose = verbose
         self.aw_client = ActivityWatchClient()
         self.event_processor = EventProcessor()
         
         # Ollama settings
         self.ollama_url = "http://localhost:11434"
-        self.model = "mistral"  # Default model
+        self.model = "cas/mistral-7b-instruct-v0.3"  # Default model
         
         # File paths for data storage
         self.data_dir = Path("data")
@@ -176,8 +188,18 @@ class CompanionCube:
     def check_activity(self):
         """Check current activity and respond if appropriate"""
         try:
+            if self.verbose:
+                print(f"\n📊 ACTIVITY CHECK - {datetime.now().strftime('%m-%d %H:%M:%S')}")
+                print("-" * 50)
+            
             # Get multi-timeframe data
             multi_timeframe_data = self.aw_client.get_multi_timeframe_data()
+            
+            if self.verbose:
+                print("📈 Multi-timeframe data collected:")
+                for timeframe, data in multi_timeframe_data.items():
+                    total_events = sum(len(events) for events in data.values())
+                    print(f"  {timeframe}: {total_events} total events")
             
             # Filter and summarize data
             summaries = self.event_processor.filter_and_summarize_data(multi_timeframe_data)
@@ -185,12 +207,26 @@ class CompanionCube:
             # Create behavior comparison
             comparison = self.event_processor.create_behavior_comparison(summaries)
             
+            if self.verbose:
+                five_min = summaries.get('5_minutes', {})
+                print(f"\n🧠 Analysis Results:")
+                print(f"  Current behavior: {five_min.get('behavior_pattern', 'unknown')}")
+                print(f"  App switches: {five_min.get('app_switches', 0)}")
+                print(f"  Focus sessions: {len(five_min.get('focus_sessions', []))}")
+                print(f"  Distractions: {len(five_min.get('distractions', []))}")
+                print(f"  Focus trend: {comparison.get('focus_trend', 'unknown')}")
+                print(f"  Distraction trend: {comparison.get('distraction_trend', 'unknown')}")
+            
             # Generate context for LLM
             context = self.event_processor.generate_llm_context(summaries, comparison)
             
             # Get current state
             user_state = comparison['current_state']
             logger.info(f"Detected user state: {user_state}")
+            
+            if self.verbose:
+                print(f"🎯 User State: {user_state}")
+                print(f"📝 Context: {context}")
             
             # Update daily stats
             five_min_summary = summaries.get('5_minutes', {})
@@ -200,9 +236,25 @@ class CompanionCube:
                 self.daily_stats['distractions'] += 1
             
             # Check if we should intervene
-            if not self.should_intervene(user_state):
+            should_intervene = self.should_intervene(user_state)
+            
+            if self.verbose:
+                time_since_last = (datetime.now(timezone.utc) - self.last_intervention).total_seconds() / 60
+                cooldown = self.intervention_cooldown.get(user_state, 15)
+                print(f"\n⏰ Intervention Decision:")
+                print(f"  Should intervene: {should_intervene}")
+                print(f"  Time since last: {time_since_last:.1f} min")
+                print(f"  Cooldown for {user_state}: {cooldown} min")
+                print(f"  Mode: {self.mode}")
+            
+            if not should_intervene:
+                if self.verbose:
+                    print("  ❌ Skipping intervention")
                 logger.debug(f"Skipping intervention for {user_state} state")
                 return
+            
+            if self.verbose:
+                print("  ✅ Proceeding with intervention")
             
             # Get appropriate prompt
             prompt = self.event_processor.generate_adhd_prompt(user_state, context)
@@ -248,16 +300,27 @@ class CompanionCube:
     def get_llm_response(self, prompt: str, user_state: str) -> str:
         """Get response from Ollama LLM"""
         try:
+            system_prompt = "You are a supportive ADHD companion. Be encouraging, never judgmental. Keep responses very concise."
+            
             request_data = {
                 "model": self.model,
                 "prompt": prompt,
-                "system": "You are a supportive ADHD companion. Be encouraging, never judgmental. Keep responses very concise.",
+                "system": system_prompt,
                 "stream": False,
                 "options": {
                     "temperature": 0.7,
                     "num_predict": 50  # Limit response length
                 }
             }
+            
+            if self.verbose:
+                print(f"\n{'='*60}")
+                print(f"🤖 LLM REQUEST (State: {user_state})")
+                print(f"{'='*60}")
+                print(f"Model: {self.model}")
+                print(f"System: {system_prompt}")
+                print(f"Prompt:\n{prompt}")
+                print(f"{'='*60}")
             
             response = requests.post(
                 f"{self.ollama_url}/api/generate",
@@ -267,7 +330,13 @@ class CompanionCube:
             
             if response.status_code == 200:
                 result = response.json()
-                return result.get("response", "").strip()
+                llm_response = result.get("response", "").strip()
+                
+                if self.verbose:
+                    print(f"✅ LLM RESPONSE: {llm_response}")
+                    print(f"{'='*60}\n")
+                
+                return llm_response
             else:
                 logger.warning(f"Ollama returned status {response.status_code}")
                 return self._get_fallback_response(user_state)
@@ -454,7 +523,7 @@ def main():
                        default="coach", help="Companion mode")
     parser.add_argument("--interval", type=int, default=60, 
                        help="Check interval in seconds")
-    parser.add_argument("--model", type=str, default="mistral",
+    parser.add_argument("--model", type=str, default="cas/mistral-7b-instruct-v0.3",
                        help="Ollama model to use")
     parser.add_argument("--test", action="store_true", 
                        help="Run a single check for testing")
@@ -462,10 +531,12 @@ def main():
                        help="Test connections and exit")
     parser.add_argument("--daily-summary", action="store_true",
                        help="Generate daily summary and exit")
+    parser.add_argument("--verbose", action="store_true",
+                       help="Enable verbose mode with detailed LLM prompts and processing info")
     
     args = parser.parse_args()
     
-    cube = CompanionCube(check_interval=args.interval, mode=args.mode)
+    cube = CompanionCube(check_interval=args.interval, mode=args.mode, verbose=args.verbose)
     cube.model = args.model
     
     print("\n🧊 Companion Cube - ADHD Productivity Assistant 🧊")

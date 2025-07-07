@@ -29,7 +29,13 @@ python companion_main.py --test
 python companion_main.py --daily-summary
 
 # Specify LLM model
-python companion_main.py --model llama2
+python companion_main.py --model deepseek-r1-distill-qwen
+
+# Enable verbose mode with detailed LLM prompts and processing info
+python companion_main.py --verbose
+
+# Combine options
+python companion_main.py --verbose --test --model cas/mistral-7b-instruct-v0.3
 ```
 
 ### Available Modes
@@ -77,7 +83,7 @@ The client handles timezone format preferences and automatically retries. If per
 
 ### Ollama Connection
 - System works without Ollama using fallback responses
-- To enable LLM: `ollama serve` then `ollama pull mistral`
+- To enable LLM: `ollama serve` then `ollama pull cas/mistral-7b-instruct-v0.3`
 - Test with: `python companion_main.py --test-connections`
 
 ## Data Flow
