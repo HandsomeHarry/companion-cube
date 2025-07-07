@@ -20,14 +20,23 @@ class ActivityWatchClient:
         for attempt in range(retries):
             try:
                 url = f"{self.base_url}/{endpoint}"
+                
+                # Log the URL for debugging
+                if '?' in endpoint:
+                    logger.debug(f"Request URL: {url}")
+                
                 response = requests.request(method, url, json=data, timeout=10)
                 
                 # Handle specific status codes
                 if response.status_code == 500:
+                    # Log more details about the error
+                    logger.warning(f"ActivityWatch 500 error for URL: {url}")
+                    logger.warning(f"Response text: {response.text[:200]}")
+                    
                     # Internal server error - might be temporary
                     if attempt < retries - 1:
                         wait_time = (attempt + 1) * 2  # Exponential backoff
-                        logger.warning(f"ActivityWatch returned 500 error, retrying in {wait_time}s...")
+                        logger.warning(f"Retrying in {wait_time}s...")
                         time.sleep(wait_time)
                         continue
                     else:
@@ -70,25 +79,31 @@ class ActivityWatchClient:
         
         results['connected'] = True
         
-        # Check for expected buckets
-        expected_buckets = {
-            'window': f"aw-watcher-window_{self.hostname}",
-            'afk': f"aw-watcher-afk_{self.hostname}",
-        }
-        
-        # Check for web watchers
+        # Check for buckets by prefix
+        window_found = False
+        afk_found = False
         web_buckets = []
+        
         for bucket_name in buckets:
-            if 'web' in bucket_name and self.hostname in bucket_name:
+            if bucket_name.startswith('aw-watcher-window_'):
+                window_found = True
+                logger.debug(f"Found window bucket: {bucket_name}")
+            elif bucket_name.startswith('aw-watcher-afk_'):
+                afk_found = True
+                logger.debug(f"Found AFK bucket: {bucket_name}")
+            elif 'web' in bucket_name:
                 web_buckets.append(bucket_name)
+                logger.debug(f"Found web bucket: {bucket_name}")
         
-        for bucket_type, bucket_name in expected_buckets.items():
-            results['buckets'][bucket_type] = bucket_name in buckets
-            if not results['buckets'][bucket_type]:
-                results['errors'].append(f"Missing {bucket_type} bucket: {bucket_name}")
-        
+        results['buckets']['window'] = window_found
+        results['buckets']['afk'] = afk_found
         results['buckets']['web'] = len(web_buckets) > 0
         results['web_buckets'] = web_buckets
+        
+        if not window_found:
+            results['errors'].append("No window watcher bucket found")
+        if not afk_found:
+            results['errors'].append("No AFK watcher bucket found")
         
         return results
     
@@ -105,15 +120,15 @@ class ActivityWatchClient:
         if end_time.tzinfo is None:
             end_time = end_time.replace(tzinfo=timezone.utc)
             
-        # ActivityWatch expects ISO format without microseconds
-        start_iso = start_time.replace(microsecond=0).isoformat()
-        end_iso = end_time.replace(microsecond=0).isoformat()
+        # ActivityWatch prefers ISO format with Z suffix
+        start_iso = start_time.replace(microsecond=0).isoformat().replace('+00:00', 'Z')
+        end_iso = end_time.replace(microsecond=0).isoformat().replace('+00:00', 'Z')
         
         # Ensure end time is not in the future
         now = datetime.now(timezone.utc)
         if end_time > now:
             end_time = now
-            end_iso = end_time.replace(microsecond=0).isoformat()
+            end_iso = end_time.replace(microsecond=0).isoformat().replace('+00:00', 'Z')
         
         endpoint = f"buckets/{bucket_id}/events"
         params = f"?start={start_iso}&end={end_iso}&limit=1000"
@@ -130,7 +145,8 @@ class ActivityWatchClient:
         query_data = {
             "query": [query_str],
             "timeperiods": [
-                [period[0].isoformat(), period[1].isoformat()] 
+                [period[0].isoformat().replace('+00:00', 'Z'), 
+                 period[1].isoformat().replace('+00:00', 'Z')] 
                 for period in timeperiods
             ]
         }
@@ -145,12 +161,25 @@ class ActivityWatchClient:
         end_time = now - timedelta(seconds=2)
         start_time = end_time - timedelta(hours=hours_back)
         
-        window_bucket = f"aw-watcher-window_{self.hostname}"
         buckets = self.get_buckets()
         
-        if window_bucket not in buckets:
-            logger.warning(f"Window bucket '{window_bucket}' not found")
+        # Try to find the window bucket with data - prefer buckets with recent updates
+        window_buckets = []
+        for bucket_name, bucket_info in buckets.items():
+            if bucket_name.startswith('aw-watcher-window_'):
+                # Check if bucket has recent data
+                last_updated = bucket_info.get('last_updated')
+                window_buckets.append((bucket_name, last_updated))
+                logger.debug(f"Found window bucket: {bucket_name}, last updated: {last_updated}")
+        
+        if not window_buckets:
+            logger.warning("No window bucket found")
             return []
+        
+        # Sort by last_updated (most recent first), None values go to end
+        window_buckets.sort(key=lambda x: x[1] if x[1] else '', reverse=True)
+        window_bucket = window_buckets[0][0]
+        logger.info(f"Using window bucket: {window_bucket}")
         
         events = self.get_events(window_bucket, start_time, end_time)
         
@@ -193,12 +222,24 @@ class ActivityWatchClient:
         end_time = now - timedelta(seconds=2)
         start_time = end_time - timedelta(hours=hours_back)
         
-        afk_bucket = f"aw-watcher-afk_{self.hostname}"
         buckets = self.get_buckets()
         
-        if afk_bucket not in buckets:
-            logger.warning(f"AFK bucket '{afk_bucket}' not found")
+        # Try to find the AFK bucket with data - prefer buckets with recent updates
+        afk_buckets = []
+        for bucket_name, bucket_info in buckets.items():
+            if bucket_name.startswith('aw-watcher-afk_'):
+                last_updated = bucket_info.get('last_updated')
+                afk_buckets.append((bucket_name, last_updated))
+                logger.debug(f"Found AFK bucket: {bucket_name}, last updated: {last_updated}")
+        
+        if not afk_buckets:
+            logger.warning("No AFK bucket found")
             return []
+        
+        # Sort by last_updated (most recent first), None values go to end
+        afk_buckets.sort(key=lambda x: x[1] if x[1] else '', reverse=True)
+        afk_bucket = afk_buckets[0][0]
+        logger.info(f"Using AFK bucket: {afk_bucket}")
         
         events = self.get_events(afk_bucket, start_time, end_time)
         if events:
@@ -238,12 +279,22 @@ class ActivityWatchClient:
     
     def get_afk_status(self) -> bool:
         """Check if user is currently AFK (Away From Keyboard)"""
-        afk_bucket = f"aw-watcher-afk_{self.hostname}"
         buckets = self.get_buckets()
         
-        if afk_bucket not in buckets:
-            logger.warning(f"AFK bucket '{afk_bucket}' not found")
+        # Try to find the AFK bucket with most recent data
+        afk_buckets = []
+        for bucket_name, bucket_info in buckets.items():
+            if bucket_name.startswith('aw-watcher-afk_'):
+                last_updated = bucket_info.get('last_updated')
+                afk_buckets.append((bucket_name, last_updated))
+        
+        if not afk_buckets:
+            logger.warning("No AFK bucket found")
             return False
+        
+        # Sort by last_updated (most recent first)
+        afk_buckets.sort(key=lambda x: x[1] if x[1] else '', reverse=True)
+        afk_bucket = afk_buckets[0][0]
         
         # Get last 5 minutes of AFK data
         now = datetime.now(timezone.utc).replace(microsecond=0)
