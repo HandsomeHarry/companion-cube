@@ -139,11 +139,11 @@ The client handles timezone format preferences and automatically retries. If per
 4. Structured JSON response parsing → validated state determination  
 5. State + LLM context → ADHD-specific intervention prompt → supportive response
 
-**Data Persistence:**
-6. All interactions logged to `data/interactions.json`
-7. Daily summaries saved to `data/daily_summaries.json`
-8. Hourly summaries auto-generated and saved to `data/hourly_summaries.json`
-9. Pattern analysis uses historical data for productivity insights
+**NEW Organized Data Persistence:**
+6. 5-minute activity summaries logged to `data/log.json` (LLM analysis every 5 minutes)
+7. 30-minute summaries generated every :00 and :30 (stored in memory, compiled into daily)
+8. Daily summaries at 4am saved to `data/daily_summary.json` (practical tone with 30-min periods)
+9. Pattern analysis uses comprehensive historical data across all timeframes
 
 ## Critical Implementation Details
 
@@ -151,16 +151,20 @@ The client handles timezone format preferences and automatically retries. If per
 - **Time Handling**: Subtracts 2 seconds from "now" to avoid querying future timestamps  
 - **State Detection**: Based on app switches, focus duration, and distraction ratio
 - **Prompt Generation**: State-specific, keeping responses under 50 words for ADHD-friendly brevity
-- **Data Storage**: JSON files in `data/` directory (interactions.json, daily_summaries.json, hourly_summaries.json)
+- **NEW Organized Data Storage**: Minimal files in `data/` directory (log.json, daily_summary.json only)
+- **5-Minute Logging**: LLM state analysis logged every 5 minutes with comprehensive context
+- **30-Minute Summaries**: Automatic practical summaries every :00 and :30 with activity breakdown
+- **4am Daily Summaries**: Daily summaries generated at 4am (not midnight) with practical tone
+- **Ctrl+C Clean Exit**: No summary generation on manual exit for cleaner workflow
 - **Error Handling**: Graceful fallbacks when ActivityWatch or Ollama are unavailable
-- **Signal Handling**: Proper cleanup on Ctrl+C with signal handlers
+- **Signal Handling**: Clean shutdown without forced summaries
 - **Intervention Cooldowns**: Prevents over-notification (flow: 45min, working: 15min, nudge: 5min)
 - **LLM Integration**: Multiple specialized prompts for different analysis types
 - **NEW LLM State Analysis**: Raw data analysis with structured JSON responses for state determination
 - **Fallback Logic**: Rule-based analysis when LLM is unavailable 
 - **Response Validation**: Strict parsing and validation of LLM JSON outputs
-- **Verbose Mode**: Real-time minute-by-minute activity tracking and hourly LLM summaries
-- **Pattern Analysis**: Cross-references hourly, daily, and interaction data for insights
+- **Verbose Mode**: Real-time minute-by-minute activity tracking
+- **Pattern Analysis**: Cross-references comprehensive timeframe data for insights
 
 ## Codebase Structure
 

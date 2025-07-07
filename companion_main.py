@@ -42,18 +42,19 @@ class CompanionCube:
         self.ollama_url = "http://localhost:11434"
         self.model = "mistral"  # Default model
         
-        # File paths for data storage
+        # File paths for new organized data storage
         self.data_dir = Path("data")
         self.data_dir.mkdir(exist_ok=True)
-        self.interactions_file = self.data_dir / "interactions.json"
-        self.good_days_file = self.data_dir / "good_days.json"
-        self.daily_summaries_file = self.data_dir / "daily_summaries.json"
-        self.hourly_summaries_file = self.data_dir / "hourly_summaries.json"
+        self.log_file = self.data_dir / "log.json"  # 5-minute activity summaries
+        self.daily_summary_file = self.data_dir / "daily_summary.json"  # Daily summaries with 30-min periods
         
         # State tracking
         self.last_intervention = datetime.now(timezone.utc)
-        self.last_hourly_summary = datetime.now(timezone.utc)
-        self.last_minute_summary = datetime.now(timezone.utc)
+        self.last_activity_log = datetime.now(timezone.utc)  # For 5-minute logs
+        self.last_thirty_minute_summary = datetime.now(timezone.utc)  # For 30-minute summaries
+        self.last_minute_summary = datetime.now(timezone.utc)  # For verbose mode
+        self.last_daily_summary_date = datetime.now().date()  # Track daily summaries at 4am
+        
         self.intervention_cooldown = {
             "flow": 45,  # Don't interrupt flow for 45 minutes
             "working": 15,  # Check in every 15 minutes when working
@@ -72,16 +73,10 @@ class CompanionCube:
         signal.signal(signal.SIGINT, self._signal_handler)
     
     def _signal_handler(self, signum, frame):
-        """Handle Ctrl+C gracefully"""
+        """Handle Ctrl+C gracefully - no summary generation"""
         print("\n\n💫 Companion Cube shutting down...")
-        try:
-            self.generate_end_of_day_summary()
-        except Exception as e:
-            logger.error(f"Error generating shutdown summary: {e}")
-            print("Had some trouble with the daily summary, but that's okay!")
-        finally:
-            print("Great work today! See you next time! 🌟")
-            sys.exit(0)
+        print("Great work today! See you next time! 🌟")
+        sys.exit(0)
     
     def test_connections(self) -> Dict[str, any]:
         """Test connections to ActivityWatch and Ollama"""
@@ -179,20 +174,24 @@ class CompanionCube:
         
         while True:
             try:
-                # Check if it's a new day
-                current_date = datetime.now().date()
-                if current_date > self.last_summary_date:
-                    self.generate_end_of_day_summary()
-                    self.last_summary_date = current_date
-                    self.daily_stats = {'focus_sessions': 0, 'distractions': 0, 'interventions': 0}
+                now = datetime.now()
                 
-                # Check for hourly summaries
-                self.check_hourly_summary()
+                # Check for daily summary at 4am (not midnight)
+                if (now.hour == 4 and now.minute < 5 and 
+                    now.date() > self.last_daily_summary_date):
+                    self.generate_daily_summary()
+                    self.last_daily_summary_date = now.date()
                 
-                # Check for minute summaries in verbose mode
+                # Check for 30-minute summaries at :00 and :30
+                if now.minute in [0, 30] and now.minute != getattr(self, '_last_30min_check', -1):
+                    self.generate_thirty_minute_summary()
+                    self._last_30min_check = now.minute
+                
+                # Check for minute summaries in verbose mode only
                 if self.verbose:
                     self.check_minute_summary()
                 
+                # Main activity check and 5-minute logging
                 self.check_activity()
                 time.sleep(self.check_interval)
                 
@@ -556,6 +555,9 @@ Analyze the data and respond with ONLY the JSON object above."""
             # Create a context string for the intervention prompt
             context = f"Primary activity: {llm_analysis.get('primary_activity', 'Unknown')}. {llm_analysis.get('reasoning', '')}"
             
+            # Log 5-minute activity summary (every 5 minutes regardless of intervention)
+            self.log_activity_summary(llm_analysis, multi_timeframe_data)
+            
             # Update daily stats
             five_min_summary = summaries.get('5_minutes', {})
             if len(five_min_summary.get('focus_sessions', [])) > 0:
@@ -593,8 +595,7 @@ Analyze the data and respond with ONLY the JSON object above."""
             # Display response to user
             self._display_response(response, user_state)
             
-            # Save interaction
-            self.save_interaction(user_state, response, summaries)
+            # Intervention recorded (5-minute logging handles activity tracking)
             
             # Update intervention tracking
             self.last_intervention = datetime.now(timezone.utc)
@@ -602,6 +603,283 @@ Analyze the data and respond with ONLY the JSON object above."""
             
         except Exception as e:
             logger.error(f"Error checking activity: {e}", exc_info=True)
+
+    def log_activity_summary(self, llm_analysis: Dict, multi_timeframe_data: Dict):
+        """Log 5-minute activity summary to log.json"""
+        try:
+            # Only log every 5 minutes to avoid spam
+            now = datetime.now(timezone.utc)
+            time_since_last_log = (now - self.last_activity_log).total_seconds() / 60
+            
+            if time_since_last_log >= 5.0:  # 5 minutes
+                # Extract key activity data
+                recent_data = multi_timeframe_data.get('5_minutes', {})
+                window_events = recent_data.get('window', [])
+                web_events = recent_data.get('web', [])
+                
+                # Get current activity summary
+                current_app = None
+                current_website = None
+                if window_events:
+                    current_app = window_events[-1].get('data', {}).get('app', 'Unknown')
+                if web_events:
+                    current_website = web_events[-1].get('data', {}).get('url', 'Unknown')
+                
+                log_entry = {
+                    "timestamp": now.isoformat(),
+                    "current_state": llm_analysis.get('current_state', 'unknown'),
+                    "focus_trend": llm_analysis.get('focus_trend', 'unknown'),
+                    "distraction_trend": llm_analysis.get('distraction_trend', 'unknown'),
+                    "primary_activity": llm_analysis.get('primary_activity', 'Unknown'),
+                    "reasoning": llm_analysis.get('reasoning', ''),
+                    "confidence": llm_analysis.get('confidence', 'unknown'),
+                    "current_app": current_app,
+                    "current_website": current_website,
+                    "activity_stats": {
+                        "window_events": len(window_events),
+                        "web_events": len(web_events),
+                        "total_active_minutes": recent_data.get('statistics', {}).get('total_active_minutes', 0),
+                        "context_switches": recent_data.get('statistics', {}).get('context_switches', 0)
+                    }
+                }
+                
+                # Load existing log
+                log_entries = []
+                if self.log_file.exists():
+                    try:
+                        with open(self.log_file, 'r') as f:
+                            log_entries = json.load(f)
+                    except:
+                        log_entries = []
+                
+                # Add new entry
+                log_entries.append(log_entry)
+                
+                # Keep last 7 days of 5-minute logs (7 * 24 * 12 = 2016 entries)
+                if len(log_entries) > 2016:
+                    log_entries = log_entries[-2016:]
+                
+                # Save log
+                with open(self.log_file, 'w') as f:
+                    json.dump(log_entries, f, indent=2)
+                
+                self.last_activity_log = now
+                
+                if self.verbose:
+                    print(f"📝 Activity logged: {llm_analysis.get('current_state')} - {llm_analysis.get('primary_activity', 'Unknown')}")
+                    
+        except Exception as e:
+            logger.error(f"Error logging activity summary: {e}")
+
+    def generate_thirty_minute_summary(self):
+        """Generate 30-minute summary with brief activities and context switches"""
+        try:
+            now = datetime.now()
+            # Check if we have any activity in the last 30 minutes
+            multi_timeframe_data = self.aw_client.get_multi_timeframe_data()
+            thirty_min_data = multi_timeframe_data.get('30_minutes', {})
+            
+            if not thirty_min_data or not thirty_min_data.get('window_events'):
+                # No activity to summarize
+                return
+                
+            # Create LLM prompt for 30-minute summary
+            window_events = thirty_min_data.get('window_events', [])
+            web_events = thirty_min_data.get('web_events', [])
+            stats = thirty_min_data.get('statistics', {})
+            
+            # Create brief activity list
+            app_durations = {}
+            for event in window_events:
+                app = event.get('app', 'Unknown')
+                duration = event.get('duration_minutes', 0)
+                app_durations[app] = app_durations.get(app, 0) + duration
+            
+            top_apps = sorted(app_durations.items(), key=lambda x: x[1], reverse=True)[:5]
+            
+            web_domains = {}
+            for event in web_events:
+                domain = event.get('domain', 'Unknown')
+                duration = event.get('duration_minutes', 0)
+                web_domains[domain] = web_domains.get(domain, 0) + duration
+            
+            top_websites = sorted(web_domains.items(), key=lambda x: x[1], reverse=True)[:3]
+            
+            prompt = f"""Create a brief 30-minute activity summary for this ADHD user.
+
+📊 30-MINUTE PERIOD: {now.strftime('%H:%M')} to {(now - timedelta(minutes=30)).strftime('%H:%M')}
+
+🖥️ TOP APPLICATIONS:
+{chr(10).join([f"• {app}: {duration:.1f} min" for app, duration in top_apps])}
+
+🌐 TOP WEBSITES:
+{chr(10).join([f"• {domain}: {duration:.1f} min" for domain, duration in top_websites])}
+
+📈 STATISTICS:
+• Total active time: {stats.get('total_active_minutes', 0):.1f} minutes
+• Context switches: {stats.get('context_switches', 0)}
+• Unique apps used: {len(stats.get('unique_apps', []))}
+
+Create a practical 2-3 sentence summary focusing on:
+- Main tasks/activities accomplished
+- Overall productivity pattern
+- Brief mention of context switching if high
+
+Keep it factual and practical, under 100 words."""
+
+            system_prompt = "You are a productivity analyst creating brief 30-minute summaries. Be practical and factual."
+            
+            request_data = {
+                "model": self.model,
+                "prompt": prompt,
+                "system": system_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.5,
+                    "num_predict": 100,
+                    "num_ctx": 8192,
+                    "top_k": 40,
+                    "top_p": 0.9
+                }
+            }
+            
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json=request_data,
+                timeout=20
+            )
+            
+            summary_text = "30-minute period with activity detected"
+            if response.status_code == 200:
+                result = response.json()
+                summary_text = result.get("response", "").strip()
+            
+            # Store for daily summary use
+            thirty_min_summary = {
+                "timestamp": now.isoformat(),
+                "period": f"{(now - timedelta(minutes=30)).strftime('%H:%M')}-{now.strftime('%H:%M')}",
+                "summary": summary_text,
+                "stats": {
+                    "active_minutes": stats.get('total_active_minutes', 0),
+                    "context_switches": stats.get('context_switches', 0),
+                    "top_apps": [app for app, _ in top_apps[:3]],
+                    "top_websites": [domain for domain, _ in top_websites[:2]]
+                }
+            }
+            
+            # Add to daily summary data (stored in memory for now, will be written to daily summary)
+            if not hasattr(self, '_thirty_min_summaries'):
+                self._thirty_min_summaries = []
+            self._thirty_min_summaries.append(thirty_min_summary)
+            
+            if self.verbose:
+                print(f"\n⏰ 30-MIN SUMMARY ({thirty_min_summary['period']}): {summary_text}")
+                
+        except Exception as e:
+            logger.error(f"Error generating 30-minute summary: {e}")
+
+    def generate_daily_summary(self):
+        """Generate practical daily summary at 4am with 30-minute periods"""
+        try:
+            print("\n" + "=" * 60)
+            print("🌅 Daily Summary (4am)")
+            print("=" * 60)
+            
+            # Get all 30-minute summaries from today
+            today_summaries = getattr(self, '_thirty_min_summaries', [])
+            
+            if not today_summaries:
+                print("No activity summaries available for today.")
+                return
+            
+            # Create comprehensive daily summary prompt
+            prompt = f"""Create a practical daily summary for this ADHD user.
+
+📅 DATE: {datetime.now().strftime('%A, %B %d, %Y')}
+
+📊 30-MINUTE PERIOD SUMMARIES:
+{chr(10).join([f"• {summary['period']}: {summary['summary']}" for summary in today_summaries])}
+
+📈 DAILY STATISTICS:
+• Total 30-minute periods: {len(today_summaries)}
+• Total interventions: {self.daily_stats.get('interventions', 0)}
+
+Create a practical daily summary that includes:
+1. **Main Tasks Accomplished**: What did they actually get done today?
+2. **Activity Patterns**: General productivity patterns and work style
+3. **Key Achievements**: Specific accomplishments worth noting
+4. **Brief Overview**: Overall assessment of the day
+
+Use a practical, matter-of-fact tone. Focus on concrete achievements and observable patterns.
+Keep it under 200 words and use clear sections."""
+
+            system_prompt = "You are a productivity analyst creating daily work summaries. Be practical, factual, and focus on accomplishments."
+            
+            request_data = {
+                "model": self.model,
+                "prompt": prompt,
+                "system": system_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.6,
+                    "num_predict": 250,
+                    "num_ctx": 8192,
+                    "top_k": 40,
+                    "top_p": 0.9
+                }
+            }
+            
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json=request_data,
+                timeout=30
+            )
+            
+            daily_summary_text = "Daily activity summary generated"
+            if response.status_code == 200:
+                result = response.json()
+                daily_summary_text = result.get("response", "").strip()
+            
+            print(daily_summary_text)
+            
+            # Save daily summary
+            daily_summary = {
+                "date": datetime.now().date().isoformat(),
+                "summary": daily_summary_text,
+                "thirty_minute_periods": today_summaries,
+                "daily_stats": self.daily_stats.copy(),
+                "generated_at": datetime.now().isoformat()
+            }
+            
+            # Load existing daily summaries
+            daily_summaries = []
+            if self.daily_summary_file.exists():
+                try:
+                    with open(self.daily_summary_file, 'r') as f:
+                        daily_summaries = json.load(f)
+                except:
+                    daily_summaries = []
+            
+            # Add new summary
+            daily_summaries.append(daily_summary)
+            
+            # Keep last 30 days
+            if len(daily_summaries) > 30:
+                daily_summaries = daily_summaries[-30:]
+            
+            # Save daily summaries
+            with open(self.daily_summary_file, 'w') as f:
+                json.dump(daily_summaries, f, indent=2)
+            
+            # Reset for new day
+            self._thirty_min_summaries = []
+            self.daily_stats = {'focus_sessions': 0, 'distractions': 0, 'interventions': 0}
+            
+            print("=" * 60 + "\n")
+            
+        except Exception as e:
+            logger.error(f"Error generating daily summary: {e}")
+            print("Had trouble generating daily summary, but your productivity continues! 📈")
     
     def should_intervene(self, user_state: str) -> bool:
         """Determine if we should intervene based on state and mode"""
