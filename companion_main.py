@@ -31,7 +31,7 @@ class CompanionCube:
         self.model = "mistral"  # Default model
         
         # File paths for data storage
-        self.data_dir = Path("companion_data")
+        self.data_dir = Path("data")
         self.data_dir.mkdir(exist_ok=True)
         self.interactions_file = self.data_dir / "interactions.json"
         self.good_days_file = self.data_dir / "good_days.json"
