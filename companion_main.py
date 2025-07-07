@@ -214,6 +214,11 @@ class CompanionCube:
                 print(f"Raw data summary: {len(raw_data.get('activity_timeline', []))} timeline events")
                 print(f"Context switches: {len(raw_data.get('context_switches', []))}")
                 print("Sending comprehensive data to LLM for analysis...")
+                print(f"\n{'='*60}")
+                print(f"🧠 LLM STATE ANALYSIS PROMPT")
+                print(f"{'='*60}")
+                print(analysis_prompt[:2000] + "..." if len(analysis_prompt) > 2000 else analysis_prompt)
+                print(f"{'='*60}")
             
             # Get LLM analysis
             system_prompt = """You are an expert ADHD productivity analyst. Analyze the provided raw activity data and determine the user's current productivity state. Be precise and data-driven in your analysis. Return your analysis in the exact JSON format requested."""
@@ -276,9 +281,47 @@ class CompanionCube:
         timeline = raw_data.get('activity_timeline', [])
         context_switches = raw_data.get('context_switches', [])
         
+        # Check AFK status first
+        recent_afk_events = recent_timeframe.get('afk_events', [])
+        is_currently_afk = False
+        if recent_afk_events:
+            latest_afk = max(recent_afk_events, key=lambda x: x['timestamp'])
+            is_currently_afk = latest_afk.get('data', {}).get('status') == 'afk'
+
+        # Get current window and web context
+        current_app = None
+        current_website = None
+        current_web_title = None
+        
+        if timeline:
+            # Find most recent app
+            for event in reversed(timeline):
+                if event['type'] == 'app' and event['name']:
+                    current_app = event['name']
+                    break
+            
+            # Find most recent web activity 
+            for event in reversed(timeline):
+                if event['type'] == 'web' and event['name']:
+                    current_website = event['name']
+                    current_web_title = event.get('title', '')
+                    break
+
         prompt = f"""Analyze this user's raw activity data and determine their current productivity state for ADHD support.
 
 📊 RAW ACTIVITY DATA ANALYSIS
+
+🚦 AFK STATUS CHECK:
+- Currently AFK: {is_currently_afk}
+{"- User is away from keyboard - state should be 'afk'" if is_currently_afk else "- User is active at computer"}
+
+🪟 CURRENT WINDOW CONTEXT:
+- Current application: {current_app or 'Unknown'}
+{"- Browser detected - checking web activity below" if current_app and any(browser in current_app.lower() for browser in ['chrome', 'firefox', 'brave', 'edge', 'safari']) else ""}
+
+🌐 WEB ACTIVITY CONTEXT:
+- Current website: {current_website or 'Not browsing'}
+- Page title: {current_web_title[:100] + '...' if current_web_title and len(current_web_title) > 100 else current_web_title or 'N/A'}
 
 ⏱️ TIMEFRAME STATISTICS:
 Recent 5 minutes:
@@ -328,27 +371,38 @@ Consider these ADHD-relevant factors:
 4. **Productivity Indicators**: Tools like IDEs, documents, vs entertainment/social media
 5. **Time Investment**: Duration spent on different types of activities
 
+ANALYSIS DECISION TREE:
+
+1️⃣ **AFK CHECK**: If user is currently AFK → state = "afk"
+
+2️⃣ **WINDOW APP ANALYSIS**: 
+   - Code editors (vscode, vim, etc.) → likely "flow" or "working"
+   - Communication apps (weixin.exe, slack, discord) → consider context
+   - Browsers (brave.exe, chrome.exe) → check WEB BUCKET below
+   - Entertainment apps (games, media players) → likely "needs_nudge"
+
+3️⃣ **WEB BUCKET ANALYSIS** (for browsers):
+   - Educational content (educational YouTube, documentation, tutorials) → "working" or "flow"
+   - Social media (facebook, twitter, instagram) → "needs_nudge"
+   - Work sites (github, company domains, productivity tools) → "working" 
+   - Entertainment (YouTube entertainment, gaming sites) → "needs_nudge"
+   - Research (wikipedia, technical articles) → "working"
+
 EXAMPLE ANALYSIS PATTERNS:
 
-🟢 FLOW STATE: 20+ minutes in coding app with minimal switches
-- current_state: "flow"
-- focus_trend: "maintaining_focus" 
-- distraction_trend: "low"
+🟢 FLOW STATE: 
+- App: vscode, Page: documentation site, Duration: 20+ min, Low switches
+- App: weixin.exe + code editor, working while communicating with team
 
-🟡 WORKING: Mix of productive apps, some context switching, but focused work evident
-- current_state: "working"  
-- focus_trend: "variable"
-- distraction_trend: "moderate"
+🟡 WORKING: 
+- App: brave.exe, Site: youtube.com, Title: "Python Tutorial - Advanced Functions"
+- App: weixin.exe + multiple work apps, coordinating work tasks
 
-🟠 NEEDS_NUDGE: High context switching, entertainment sites, or rapid app changes
-- current_state: "needs_nudge"
-- focus_trend: "declining" 
-- distraction_trend: "increasing"
+🟠 NEEDS_NUDGE: 
+- App: brave.exe, Site: youtube.com, Title: "Funny Cat Videos Compilation"
+- High context switching between entertainment sites
 
-🔴 AFK: No recent activity or only AFK events
-- current_state: "afk"
-- focus_trend: "none"
-- distraction_trend: "none"
+🔴 AFK: Currently AFK status = true
 
 REQUIRED OUTPUT FORMAT (JSON):
 {{

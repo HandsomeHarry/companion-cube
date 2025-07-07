@@ -24,5 +24,31 @@
       "focus_sessions": 0,
       "distractions": 0
     }
+  },
+  {
+    "timestamp": "2025-07-07T15:45:45.240406+00:00",
+    "state": "afk",
+    "response": "\ud83d\udc4b Welcome back! What shall we tackle?",
+    "mode": "coach",
+    "activity_summary": {
+      "current_behavior": "light_activity",
+      "active_minutes": 0,
+      "app_switches": 0,
+      "focus_sessions": 0,
+      "distractions": 0
+    }
+  },
+  {
+    "timestamp": "2025-07-07T15:47:26.009978+00:00",
+    "state": "afk",
+    "response": "\ud83d\udc4b Welcome back! What shall we tackle?",
+    "mode": "coach",
+    "activity_summary": {
+      "current_behavior": "light_activity",
+      "active_minutes": 0,
+      "app_switches": 0,
+      "focus_sessions": 0,
+      "distractions": 0
+    }
   }
 ]

@@ -1,1 +1,63 @@
+# Data directory (contains personal activity data)
+data/
 /data/
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Configuration files that might contain sensitive info
+config.json
+.env
+.env.local
+.env.production
+.env.staging
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Model files (can be large)
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# Personal notes and documentation
+personal_notes.md
+TODO.md
+scratch.md
+
+# Backup files
+*.bak
+*.backup
